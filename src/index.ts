@@ -469,15 +469,23 @@ async function main() {
 
   httpServer.on("error", (error) => {
     console.error("Server error:", error);
-    process.exit(1);
   });
 
   httpServer.listen(port, () => {
     console.error(`✓ Planning Center MCP server running on port ${port}`);
   });
+
+  // Keep the process alive
+  process.on("uncaughtException", (error) => {
+    console.error("Uncaught exception:", error);
+  });
+
+  process.on("unhandledRejection", (reason, promise) => {
+    console.error("Unhandled rejection at:", promise, "reason:", reason);
+  });
 }
 
 main().catch((error) => {
   console.error("Fatal error:", error);
-  process.exit(1);
+  // Don't exit, let the server continue running
 });
