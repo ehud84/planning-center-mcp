@@ -414,7 +414,7 @@ server.registerTool(
   }
 );
 
-// Start server with proper HTTP transport
+// Start server
 async function main() {
   try {
     const groups = await api.listGroups(1);
@@ -428,15 +428,72 @@ async function main() {
 
   const httpServer = http.createServer(async (req, res) => {
     try {
-      // Only handle SSE connections on /messages endpoint
+      // Enable CORS for Cowork
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+      // Handle preflight
+      if (req.method === "OPTIONS") {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      // MCP SSE endpoint
       if (req.url === "/messages" && req.method === "GET") {
         const transport = new SSEServerTransport(req, res);
         await server.connect(transport);
-      } else {
-        // Return 404 for other routes
-        res.writeHead(404, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Not found" }));
+        return;
       }
+
+      // Health check endpoint
+      if (req.url === "/health" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "ok", service: "planning-center-mcp" }));
+        return;
+      }
+
+      // OAuth discovery endpoints (for compatibility with OAuth-aware clients)
+      if (req.url === "/.well-known/oauth-protected-resource" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          protected_resources: [{
+            resource: "planning-center-api",
+            display_name: "Planning Center API"
+          }]
+        }));
+        return;
+      }
+
+      if (req.url === "/.well-known/oauth-authorization-server" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          issuer: process.env.SERVER_URL || "https://planning-center-mcp-production-aa9f.up.railway.app",
+          authorization_endpoint: (process.env.SERVER_URL || "https://planning-center-mcp-production-aa9f.up.railway.app") + "/authorize",
+          token_endpoint: (process.env.SERVER_URL || "https://planning-center-mcp-production-aa9f.up.railway.app") + "/token",
+          scopes_supported: ["read", "write"]
+        }));
+        return;
+      }
+
+      // Root endpoint - return server info
+      if (req.url === "/" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          name: "planning-center-mcp",
+          version: "1.0.0",
+          endpoints: {
+            messages: "/messages",
+            health: "/health"
+          }
+        }));
+        return;
+      }
+
+      // Not found
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found" }));
     } catch (error) {
       console.error("Error handling request:", error);
       res.writeHead(500, { "Content-Type": "application/json" });
