@@ -1,10 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequest,
-  ListToolsRequest,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
+import { Tool } from "@modelcontextprotocol/sdk/types.js";
 import axios, { AxiosInstance } from "axios";
 
 const PCO_API_BASE = "https://api.planningcenteronline.com";
@@ -226,24 +222,15 @@ if (!clientId || !clientSecret) {
 }
 
 const pco = new PlanningCenterMCP(clientId, clientSecret);
-const server = new Server(
-  {
-    name: "planning-center-mcp",
-    version: "1.0.0",
-  },
-  {
-    tools: {},
-  }
-);
 
-// Register tools
+// Define tools
 const tools: Tool[] = [
   {
     name: "list_groups",
     description:
       "List all groups in Planning Center. Returns group name, ID, member count, and other details.",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {
         per_page: {
           type: "number",
@@ -258,7 +245,7 @@ const tools: Tool[] = [
     description:
       "Get details for a specific group by ID. Returns all group attributes.",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {
         group_id: {
           type: "string",
@@ -273,7 +260,7 @@ const tools: Tool[] = [
     description:
       "Get all available group types in Planning Center (e.g., 'Missional Communities', 'Life Groups', etc.)",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {},
       required: [],
     },
@@ -283,7 +270,7 @@ const tools: Tool[] = [
     description:
       "Create a new group in Planning Center with specified name and optional settings.",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {
         name: {
           type: "string",
@@ -310,7 +297,7 @@ const tools: Tool[] = [
     name: "list_people",
     description: "List all people in the Planning Center organization.",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {
         per_page: {
           type: "number",
@@ -325,7 +312,7 @@ const tools: Tool[] = [
     description:
       "Search for people by first name and/or last name. Returns matching people.",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {
         first_name: {
           type: "string",
@@ -343,7 +330,7 @@ const tools: Tool[] = [
     name: "get_group_memberships",
     description: "Get all members of a specific group with their roles.",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {
         group_id: {
           type: "string",
@@ -362,7 +349,7 @@ const tools: Tool[] = [
     description:
       "Add a person to a group with an optional role (member or leader).",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {
         group_id: {
           type: "string",
@@ -384,7 +371,7 @@ const tools: Tool[] = [
     name: "remove_person_from_group",
     description: "Remove a person from a group.",
     inputSchema: {
-      type: "object" as const,
+      type: "object",
       properties: {
         group_id: {
           type: "string",
@@ -400,24 +387,32 @@ const tools: Tool[] = [
   },
 ];
 
-server.setRequestHandler(ListToolsRequest, async () => ({
-  tools,
-}));
+// Create server with tools
+const server = new Server(
+  {
+    name: "planning-center-mcp",
+    version: "1.0.0",
+  },
+  {
+    tools: tools,
+  }
+);
 
-server.setRequestHandler(CallToolRequest, async (request: CallToolRequest) => {
-  const { name, arguments: args } = request;
-  const params = args as Record<string, any>;
+// Handle tool calls
+server.setRequestHandler("tools/call", async (request: any) => {
+  const toolName = request.params.name;
+  const toolArgs = request.params.arguments || {};
 
   try {
     let result: any;
 
-    switch (name) {
+    switch (toolName) {
       case "list_groups": {
-        result = await pco.listGroups(params.per_page || 100);
+        result = await pco.listGroups(toolArgs.per_page || 100);
         break;
       }
       case "get_group": {
-        result = await pco.getGroup(params.group_id);
+        result = await pco.getGroup(toolArgs.group_id);
         break;
       }
       case "get_group_types": {
@@ -426,48 +421,48 @@ server.setRequestHandler(CallToolRequest, async (request: CallToolRequest) => {
       }
       case "create_group": {
         result = await pco.createGroup(
-          params.name,
-          params.group_type_id,
-          params.members_confidential !== false,
-          params.listed === true
+          toolArgs.name,
+          toolArgs.group_type_id,
+          toolArgs.members_confidential !== false,
+          toolArgs.listed === true
         );
         break;
       }
       case "list_people": {
-        result = await pco.listPeople(params.per_page || 100);
+        result = await pco.listPeople(toolArgs.per_page || 100);
         break;
       }
       case "search_people": {
         result = await pco.searchPeopleByName(
-          params.first_name,
-          params.last_name
+          toolArgs.first_name,
+          toolArgs.last_name
         );
         break;
       }
       case "get_group_memberships": {
         result = await pco.getGroupMemberships(
-          params.group_id,
-          params.per_page || 100
+          toolArgs.group_id,
+          toolArgs.per_page || 100
         );
         break;
       }
       case "add_person_to_group": {
         result = await pco.addPersonToGroup(
-          params.group_id,
-          params.person_id,
-          params.role || "member"
+          toolArgs.group_id,
+          toolArgs.person_id,
+          toolArgs.role || "member"
         );
         break;
       }
       case "remove_person_from_group": {
         result = await pco.removePersonFromGroup(
-          params.group_id,
-          params.membership_id
+          toolArgs.group_id,
+          toolArgs.membership_id
         );
         break;
       }
       default: {
-        throw new Error(`Unknown tool: ${name}`);
+        throw new Error(`Unknown tool: ${toolName}`);
       }
     }
 
