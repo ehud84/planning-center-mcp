@@ -171,7 +171,7 @@ if (!clientId || !clientSecret) {
 
 const api = new PlanningCenterAPI(clientId, clientSecret);
 
-// Start server with HTTP support
+// Start server
 async function main() {
   try {
     const groups = await api.listGroups(1);
@@ -181,216 +181,90 @@ async function main() {
     process.exit(1);
   }
 
-  const port = process.env.PORT || 3000;
+  const port = parseInt(process.env.PORT || "3000", 10);
 
-  const httpServer = http.createServer((req, res) => {
-    try {
-      // Enable CORS
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-      if (req.method === "OPTIONS") {
-        res.writeHead(200);
-        res.end();
-        return;
-      }
-
+  const server = http.createServer((req, res) => {
     // Health check
-    if (req.url === "/health") {
+    if (req.url === "/health" && req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok" }));
       return;
     }
 
-    // List tools endpoint
-    if (req.method === "GET" && req.url === "/tools") {
-      try {
-        const result = {
-          tools: [
-            {
-              name: "list_groups",
-              description: "List all groups in Planning Center",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  per_page: {
-                    type: "number",
-                    description: "Results per page (default: 100)",
-                  },
-                },
-              },
+    // List tools
+    if (req.url === "/tools" && req.method === "GET") {
+      const tools = [
+        {
+          name: "list_groups",
+          description: "List all groups in Planning Center",
+          inputSchema: { type: "object", properties: { per_page: { type: "number" } } },
+        },
+        {
+          name: "get_group",
+          description: "Get a specific group by ID",
+          inputSchema: { type: "object", properties: { group_id: { type: "string" } }, required: ["group_id"] },
+        },
+        {
+          name: "get_group_types",
+          description: "Get all available group types",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "create_group",
+          description: "Create a new group",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              group_type_id: { type: "string" },
+              members_confidential: { type: "boolean" },
+              listed: { type: "boolean" },
             },
-            {
-              name: "get_group",
-              description: "Get a specific group by ID",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  group_id: {
-                    type: "string",
-                    description: "Group ID",
-                  },
-                },
-                required: ["group_id"],
-              },
-            },
-            {
-              name: "get_group_types",
-              description: "Get all available group types",
-              inputSchema: {
-                type: "object",
-                properties: {},
-              },
-            },
-            {
-              name: "create_group",
-              description: "Create a new group",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  name: {
-                    type: "string",
-                    description: "Group name",
-                  },
-                  group_type_id: {
-                    type: "string",
-                    description: "Group type ID (optional)",
-                  },
-                  members_confidential: {
-                    type: "boolean",
-                    description: "Members confidential (default: true)",
-                  },
-                  listed: {
-                    type: "boolean",
-                    description: "Listed (default: false)",
-                  },
-                },
-                required: ["name"],
-              },
-            },
-            {
-              name: "list_people",
-              description: "List all people",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  per_page: {
-                    type: "number",
-                    description: "Results per page (default: 100)",
-                  },
-                },
-              },
-            },
-            {
-              name: "search_people",
-              description: "Search people by name",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  first_name: {
-                    type: "string",
-                    description: "First name",
-                  },
-                  last_name: {
-                    type: "string",
-                    description: "Last name",
-                  },
-                },
-              },
-            },
-            {
-              name: "get_group_memberships",
-              description: "Get members of a group",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  group_id: {
-                    type: "string",
-                    description: "Group ID",
-                  },
-                  per_page: {
-                    type: "number",
-                    description: "Results per page (default: 100)",
-                  },
-                },
-                required: ["group_id"],
-              },
-            },
-            {
-              name: "add_person_to_group",
-              description: "Add person to group",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  group_id: {
-                    type: "string",
-                    description: "Group ID",
-                  },
-                  person_id: {
-                    type: "string",
-                    description: "Person ID",
-                  },
-                  role: {
-                    type: "string",
-                    description: "Role (member or leader, default: member)",
-                  },
-                },
-                required: ["group_id", "person_id"],
-              },
-            },
-            {
-              name: "remove_person_from_group",
-              description: "Remove person from group",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  group_id: {
-                    type: "string",
-                    description: "Group ID",
-                  },
-                  membership_id: {
-                    type: "string",
-                    description: "Membership ID",
-                  },
-                },
-                required: ["group_id", "membership_id"],
-              },
-            },
-          ],
-        };
+            required: ["name"],
+          },
+        },
+        {
+          name: "list_people",
+          description: "List all people",
+          inputSchema: { type: "object", properties: { per_page: { type: "number" } } },
+        },
+        {
+          name: "search_people",
+          description: "Search people by name",
+          inputSchema: { type: "object", properties: { first_name: { type: "string" }, last_name: { type: "string" } } },
+        },
+        {
+          name: "get_group_memberships",
+          description: "Get members of a group",
+          inputSchema: { type: "object", properties: { group_id: { type: "string" }, per_page: { type: "number" } }, required: ["group_id"] },
+        },
+        {
+          name: "add_person_to_group",
+          description: "Add person to group",
+          inputSchema: { type: "object", properties: { group_id: { type: "string" }, person_id: { type: "string" }, role: { type: "string" } }, required: ["group_id", "person_id"] },
+        },
+        {
+          name: "remove_person_from_group",
+          description: "Remove person from group",
+          inputSchema: { type: "object", properties: { group_id: { type: "string" }, membership_id: { type: "string" } }, required: ["group_id", "membership_id"] },
+        },
+      ];
 
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(result));
-      } catch (error: any) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: error.message }));
-      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ tools }));
       return;
     }
 
-    // Call tool endpoint
-    if (req.method === "POST" && req.url === "/call_tool") {
+    // Call tool
+    if (req.url === "/call_tool" && req.method === "POST") {
       let body = "";
 
       req.on("data", (chunk) => {
         body += chunk.toString();
       });
 
-      req.on("error", (error) => {
-        console.error("Request error:", error);
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Request error" }));
-      });
-
       req.on("end", async () => {
         try {
-          if (!body) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "Empty request body" }));
-            return;
-          }
-
           const request = JSON.parse(body);
           const toolName = request.name;
           const toolArgs = request.arguments || {};
@@ -419,29 +293,16 @@ async function main() {
               result = await api.listPeople(toolArgs.per_page || 100);
               break;
             case "search_people":
-              result = await api.searchPeopleByName(
-                toolArgs.first_name,
-                toolArgs.last_name
-              );
+              result = await api.searchPeopleByName(toolArgs.first_name, toolArgs.last_name);
               break;
             case "get_group_memberships":
-              result = await api.getGroupMemberships(
-                toolArgs.group_id,
-                toolArgs.per_page || 100
-              );
+              result = await api.getGroupMemberships(toolArgs.group_id, toolArgs.per_page || 100);
               break;
             case "add_person_to_group":
-              result = await api.addPersonToGroup(
-                toolArgs.group_id,
-                toolArgs.person_id,
-                toolArgs.role || "member"
-              );
+              result = await api.addPersonToGroup(toolArgs.group_id, toolArgs.person_id, toolArgs.role || "member");
               break;
             case "remove_person_from_group":
-              result = await api.removePersonFromGroup(
-                toolArgs.group_id,
-                toolArgs.membership_id
-              );
+              result = await api.removePersonFromGroup(toolArgs.group_id, toolArgs.membership_id);
               break;
             default:
               throw new Error(`Unknown tool: ${toolName}`);
@@ -450,7 +311,7 @@ async function main() {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify(result));
         } catch (error: any) {
-          console.error("Tool execution error:", error);
+          console.error("Tool error:", error);
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: error.message }));
         }
@@ -458,34 +319,17 @@ async function main() {
       return;
     }
 
-      res.writeHead(404);
-      res.end();
-    } catch (error: any) {
-      console.error("Unexpected error:", error);
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Internal server error" }));
-    }
+    // 404
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found" }));
   });
 
-  httpServer.on("error", (error) => {
-    console.error("Server error:", error);
-  });
-
-  httpServer.listen(port, () => {
+  server.listen(port, () => {
     console.error(`✓ Planning Center MCP server running on port ${port}`);
-  });
-
-  // Keep the process alive
-  process.on("uncaughtException", (error) => {
-    console.error("Uncaught exception:", error);
-  });
-
-  process.on("unhandledRejection", (reason, promise) => {
-    console.error("Unhandled rejection at:", promise, "reason:", reason);
   });
 }
 
 main().catch((error) => {
   console.error("Fatal error:", error);
-  // Don't exit, let the server continue running
+  process.exit(1);
 });
