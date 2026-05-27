@@ -183,17 +183,18 @@ async function main() {
 
   const port = process.env.PORT || 3000;
 
-  const httpServer = http.createServer(async (req, res) => {
-    // Enable CORS
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  const httpServer = http.createServer((req, res) => {
+    try {
+      // Enable CORS
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-    if (req.method === "OPTIONS") {
-      res.writeHead(200);
-      res.end();
-      return;
-    }
+      if (req.method === "OPTIONS") {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
 
     // Health check
     if (req.url === "/health") {
@@ -371,12 +372,25 @@ async function main() {
     // Call tool endpoint
     if (req.method === "POST" && req.url === "/call_tool") {
       let body = "";
+
       req.on("data", (chunk) => {
         body += chunk.toString();
       });
 
+      req.on("error", (error) => {
+        console.error("Request error:", error);
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Request error" }));
+      });
+
       req.on("end", async () => {
         try {
+          if (!body) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Empty request body" }));
+            return;
+          }
+
           const request = JSON.parse(body);
           const toolName = request.name;
           const toolArgs = request.arguments || {};
@@ -436,6 +450,7 @@ async function main() {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify(result));
         } catch (error: any) {
+          console.error("Tool execution error:", error);
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: error.message }));
         }
@@ -443,8 +458,18 @@ async function main() {
       return;
     }
 
-    res.writeHead(404);
-    res.end();
+      res.writeHead(404);
+      res.end();
+    } catch (error: any) {
+      console.error("Unexpected error:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Internal server error" }));
+    }
+  });
+
+  httpServer.on("error", (error) => {
+    console.error("Server error:", error);
+    process.exit(1);
   });
 
   httpServer.listen(port, () => {
