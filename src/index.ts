@@ -158,7 +158,6 @@ class PlanningCenterAPI {
   }
 }
 
-// Get credentials
 const clientId = process.env.PCO_CLIENT_ID;
 const clientSecret = process.env.PCO_CLIENT_SECRET;
 
@@ -171,7 +170,6 @@ if (!clientId || !clientSecret) {
 
 const api = new PlanningCenterAPI(clientId, clientSecret);
 
-// Start server
 async function main() {
   try {
     const groups = await api.listGroups(1);
@@ -184,85 +182,41 @@ async function main() {
   const port = parseInt(process.env.PORT || "3000", 10);
 
   const server = http.createServer((req, res) => {
-    // Health check
-    if (req.url === "/health" && req.method === "GET") {
+    const url = req.url || "";
+    const method = req.method || "";
+
+    console.error(`[${method}] ${url}`);
+
+    if (url === "/health") {
+      console.error("  → Matched /health");
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok" }));
       return;
     }
 
-    // List tools
-    if (req.url === "/tools" && req.method === "GET") {
-      const tools = [
-        {
-          name: "list_groups",
-          description: "List all groups in Planning Center",
-          inputSchema: { type: "object", properties: { per_page: { type: "number" } } },
-        },
-        {
-          name: "get_group",
-          description: "Get a specific group by ID",
-          inputSchema: { type: "object", properties: { group_id: { type: "string" } }, required: ["group_id"] },
-        },
-        {
-          name: "get_group_types",
-          description: "Get all available group types",
-          inputSchema: { type: "object", properties: {} },
-        },
-        {
-          name: "create_group",
-          description: "Create a new group",
-          inputSchema: {
-            type: "object",
-            properties: {
-              name: { type: "string" },
-              group_type_id: { type: "string" },
-              members_confidential: { type: "boolean" },
-              listed: { type: "boolean" },
-            },
-            required: ["name"],
-          },
-        },
-        {
-          name: "list_people",
-          description: "List all people",
-          inputSchema: { type: "object", properties: { per_page: { type: "number" } } },
-        },
-        {
-          name: "search_people",
-          description: "Search people by name",
-          inputSchema: { type: "object", properties: { first_name: { type: "string" }, last_name: { type: "string" } } },
-        },
-        {
-          name: "get_group_memberships",
-          description: "Get members of a group",
-          inputSchema: { type: "object", properties: { group_id: { type: "string" }, per_page: { type: "number" } }, required: ["group_id"] },
-        },
-        {
-          name: "add_person_to_group",
-          description: "Add person to group",
-          inputSchema: { type: "object", properties: { group_id: { type: "string" }, person_id: { type: "string" }, role: { type: "string" } }, required: ["group_id", "person_id"] },
-        },
-        {
-          name: "remove_person_from_group",
-          description: "Remove person from group",
-          inputSchema: { type: "object", properties: { group_id: { type: "string" }, membership_id: { type: "string" } }, required: ["group_id", "membership_id"] },
-        },
-      ];
-
+    if (url === "/tools") {
+      console.error("  → Matched /tools");
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ tools }));
+      res.end(JSON.stringify({
+        tools: [
+          { name: "list_groups", description: "List all groups" },
+          { name: "get_group", description: "Get a group" },
+          { name: "get_group_types", description: "Get group types" },
+          { name: "create_group", description: "Create a group" },
+          { name: "list_people", description: "List people" },
+          { name: "search_people", description: "Search people" },
+          { name: "get_group_memberships", description: "Get group members" },
+          { name: "add_person_to_group", description: "Add person to group" },
+          { name: "remove_person_from_group", description: "Remove person from group" },
+        ]
+      }));
       return;
     }
 
-    // Call tool
-    if (req.url === "/call_tool" && req.method === "POST") {
+    if (url === "/call_tool") {
+      console.error("  → Matched /call_tool");
       let body = "";
-
-      req.on("data", (chunk) => {
-        body += chunk.toString();
-      });
-
+      req.on("data", chunk => { body += chunk; });
       req.on("end", async () => {
         try {
           const request = JSON.parse(body);
@@ -270,48 +224,21 @@ async function main() {
           const toolArgs = request.arguments || {};
 
           let result: any;
-
           switch (toolName) {
-            case "list_groups":
-              result = await api.listGroups(toolArgs.per_page || 100);
-              break;
-            case "get_group":
-              result = await api.getGroup(toolArgs.group_id);
-              break;
-            case "get_group_types":
-              result = await api.getGroupTypes();
-              break;
-            case "create_group":
-              result = await api.createGroup(
-                toolArgs.name,
-                toolArgs.group_type_id,
-                toolArgs.members_confidential !== false,
-                toolArgs.listed === true
-              );
-              break;
-            case "list_people":
-              result = await api.listPeople(toolArgs.per_page || 100);
-              break;
-            case "search_people":
-              result = await api.searchPeopleByName(toolArgs.first_name, toolArgs.last_name);
-              break;
-            case "get_group_memberships":
-              result = await api.getGroupMemberships(toolArgs.group_id, toolArgs.per_page || 100);
-              break;
-            case "add_person_to_group":
-              result = await api.addPersonToGroup(toolArgs.group_id, toolArgs.person_id, toolArgs.role || "member");
-              break;
-            case "remove_person_from_group":
-              result = await api.removePersonFromGroup(toolArgs.group_id, toolArgs.membership_id);
-              break;
-            default:
-              throw new Error(`Unknown tool: ${toolName}`);
+            case "list_groups": result = await api.listGroups(toolArgs.per_page || 100); break;
+            case "get_group": result = await api.getGroup(toolArgs.group_id); break;
+            case "get_group_types": result = await api.getGroupTypes(); break;
+            case "create_group": result = await api.createGroup(toolArgs.name, toolArgs.group_type_id, toolArgs.members_confidential !== false, toolArgs.listed === true); break;
+            case "list_people": result = await api.listPeople(toolArgs.per_page || 100); break;
+            case "search_people": result = await api.searchPeopleByName(toolArgs.first_name, toolArgs.last_name); break;
+            case "get_group_memberships": result = await api.getGroupMemberships(toolArgs.group_id, toolArgs.per_page || 100); break;
+            case "add_person_to_group": result = await api.addPersonToGroup(toolArgs.group_id, toolArgs.person_id, toolArgs.role || "member"); break;
+            case "remove_person_from_group": result = await api.removePersonFromGroup(toolArgs.group_id, toolArgs.membership_id); break;
+            default: throw new Error(`Unknown tool: ${toolName}`);
           }
-
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify(result));
         } catch (error: any) {
-          console.error("Tool error:", error);
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: error.message }));
         }
@@ -319,7 +246,7 @@ async function main() {
       return;
     }
 
-    // 404
+    console.error("  → No match, returning 404");
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Not found" }));
   });
@@ -329,7 +256,7 @@ async function main() {
   });
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error("Fatal error:", error);
   process.exit(1);
 });
