@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import axios, { AxiosInstance } from "axios";
 
 const PCO_API_BASE = "https://api.planningcenteronline.com";
@@ -186,7 +187,7 @@ const server = new Server(
 );
 
 // List tools
-server.setRequestHandler("tools/list", async () => {
+server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
@@ -343,7 +344,7 @@ server.setRequestHandler("tools/list", async () => {
 });
 
 // Handle tool calls
-server.setRequestHandler("tools/call", async (request: any) => {
+server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
   const toolName = request.params?.name;
   const toolArgs = request.params?.arguments || {};
 
