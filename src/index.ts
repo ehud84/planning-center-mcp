@@ -456,54 +456,6 @@ async function main() {
         return;
       }
 
-      // OAuth authorization endpoint
-      if (req.url?.startsWith("/authorize") && req.method === "GET") {
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const state = url.searchParams.get("state");
-        const redirectUri = url.searchParams.get("redirect_uri");
-
-        if (!redirectUri) {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Missing redirect_uri" }));
-          return;
-        }
-
-        // Generate a simple auth code
-        const authCode = Buffer.from(JSON.stringify({
-          clientId: clientId,
-          clientSecret: clientSecret,
-          timestamp: Date.now()
-        })).toString("base64");
-
-        // Redirect back with authorization code
-        const redirectUrl = `${redirectUri}?code=${authCode}&state=${state || ""}`;
-        res.writeHead(302, { "Location": redirectUrl });
-        res.end();
-        return;
-      }
-
-      // OAuth token endpoint
-      if (req.url === "/token" && req.method === "POST") {
-        let body = "";
-        req.on("data", (chunk) => {
-          body += chunk.toString();
-        });
-        req.on("end", () => {
-          const token = Buffer.from(JSON.stringify({
-            clientId: clientId,
-            clientSecret: clientSecret,
-            type: "bearer"
-          })).toString("base64");
-
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            access_token: token,
-            token_type: "bearer",
-            expires_in: 3600
-          }));
-        });
-        return;
-      }
 
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Not found" }));
