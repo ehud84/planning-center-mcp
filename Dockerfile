@@ -9,7 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the MCP server
 COPY planning_center_server.py .
 
-# Set environment variables for port
+# Set environment variables for Uvicorn
+ENV HOST=0.0.0.0
 ENV PORT=8000
 
 # Expose port
