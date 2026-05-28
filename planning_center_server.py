@@ -578,4 +578,4 @@ async def remove_person_from_group(params: RemovePersonFromGroupInput) -> str:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(mcp, host="0.0.0.0", port=8000)
+    uvicorn.run(mcp.app, host="0.0.0.0", port=8000)
