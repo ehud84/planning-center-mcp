@@ -576,5 +576,18 @@ async def remove_person_from_group(params: RemovePersonFromGroupInput) -> str:
         return _handle_error(e)
 
 
+# Add health check endpoint to the MCP app
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+async def health_check(request):
+    """Simple health check endpoint."""
+    return JSONResponse({"status": "ok", "service": "planning-center-mcp"})
+
+# Add the health route to the MCP app's router
+health_route = Route("/health", health_check, methods=["GET"])
+mcp.router.routes.append(health_route)
+
+
 if __name__ == "__main__":
     mcp.run(transport="sse")
