@@ -456,18 +456,6 @@ async function main() {
         return;
       }
 
-      // OAuth discovery endpoints
-      if (req.url === "/.well-known/oauth-protected-resource" && req.method === "GET") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ protected_resources: [] }));
-        return;
-      }
-
-      if (req.url === "/.well-known/oauth-authorization-server" && req.method === "GET") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ issuer: "planning-center-mcp" }));
-        return;
-      }
 
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Not found" }));
