@@ -7,5 +7,9 @@ if [ -z "$PCO_CLIENT_ID" ] || [ -z "$PCO_CLIENT_SECRET" ]; then
     exit 1
 fi
 
+# Configure uvicorn (used internally by FastMCP.run())
+export UVICORN_HOST=0.0.0.0
+export UVICORN_PORT=8000
+
 # Run the Planning Center MCP server
 exec python /app/planning_center_server.py
