@@ -588,24 +588,14 @@ if __name__ == "__main__":
     print("=" * 60, file=sys.stderr, flush=True)
 
     try:
-        # FastMCP.run() appears to not work properly in containers
-        # Use uvicorn directly with the mcp object
-        # FastMCP should be ASGI3 compatible
-        print("Attempting to start uvicorn with FastMCP...", file=sys.stderr, flush=True)
-
         host = os.getenv("UVICORN_HOST", "0.0.0.0")
         port = int(os.getenv("UVICORN_PORT", "8000"))
 
-        print(f"Host: {host}, Port: {port}", file=sys.stderr, flush=True)
+        print(f"Starting SSE-based MCP server on {host}:{port}", file=sys.stderr, flush=True)
 
-        # Try to access the ASGI interface
-        if hasattr(mcp, "__call__"):
-            print("FastMCP is callable, passing directly to uvicorn", file=sys.stderr, flush=True)
-            uvicorn.run(mcp, host=host, port=port)
-        else:
-            print("FastMCP is not callable, trying to find ASGI app", file=sys.stderr, flush=True)
-            print(f"FastMCP attributes: {dir(mcp)}", file=sys.stderr, flush=True)
-            sys.exit(1)
+        # FastMCP exposes sse_app which is the ASGI3 app for SSE transport
+        # This is what Cowork expects
+        uvicorn.run(mcp.sse_app, host=host, port=port, log_level="info")
     except Exception as e:
         print(f"FATAL ERROR: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
