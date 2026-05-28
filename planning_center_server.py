@@ -577,4 +577,18 @@ async def remove_person_from_group(params: RemovePersonFromGroupInput) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+    import traceback
+
+    try:
+        print("=" * 60, file=sys.stderr)
+        print("Starting Planning Center MCP Server", file=sys.stderr)
+        print(f"PCO_CLIENT_ID configured: {bool(PCO_CLIENT_ID)}", file=sys.stderr)
+        print(f"PCO_CLIENT_SECRET configured: {bool(PCO_CLIENT_SECRET)}", file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+
+        mcp.run()
+    except Exception as e:
+        print(f"FATAL ERROR: {e}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
