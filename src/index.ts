@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { z } from "zod";
+import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import axios, { AxiosInstance } from "axios";
 import http from "http";
 
@@ -173,7 +173,6 @@ if (!clientId || !clientSecret) {
 
 const api = new PlanningCenterAPI(clientId, clientSecret);
 
-// Create MCP server
 const server = new Server(
   {
     name: "planning-center-mcp",
@@ -186,56 +185,219 @@ const server = new Server(
   }
 );
 
-// Define tool schemas
-const ListGroupsSchema = z.object({
-  per_page: z.number().optional().describe("Results per page (default: 100)"),
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: "list_groups",
+        description: "List all groups in Planning Center",
+        inputSchema: {
+          type: "object",
+          properties: {
+            per_page: {
+              type: "number",
+              description: "Results per page (default: 100)",
+            },
+          },
+        },
+      },
+      {
+        name: "get_group",
+        description: "Get a specific group by ID",
+        inputSchema: {
+          type: "object",
+          properties: {
+            group_id: {
+              type: "string",
+              description: "Group ID",
+            },
+          },
+          required: ["group_id"],
+        },
+      },
+      {
+        name: "get_group_types",
+        description: "Get all available group types",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "create_group",
+        description: "Create a new group",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Group name",
+            },
+            group_type_id: {
+              type: "string",
+              description: "Group type ID (optional)",
+            },
+            members_confidential: {
+              type: "boolean",
+              description: "Members confidential (default: true)",
+            },
+            listed: {
+              type: "boolean",
+              description: "Listed (default: false)",
+            },
+          },
+          required: ["name"],
+        },
+      },
+      {
+        name: "list_people",
+        description: "List all people",
+        inputSchema: {
+          type: "object",
+          properties: {
+            per_page: {
+              type: "number",
+              description: "Results per page (default: 100)",
+            },
+          },
+        },
+      },
+      {
+        name: "search_people",
+        description: "Search people by name",
+        inputSchema: {
+          type: "object",
+          properties: {
+            first_name: {
+              type: "string",
+              description: "First name",
+            },
+            last_name: {
+              type: "string",
+              description: "Last name",
+            },
+          },
+        },
+      },
+      {
+        name: "get_group_memberships",
+        description: "Get members of a group",
+        inputSchema: {
+          type: "object",
+          properties: {
+            group_id: {
+              type: "string",
+              description: "Group ID",
+            },
+            per_page: {
+              type: "number",
+              description: "Results per page (default: 100)",
+            },
+          },
+          required: ["group_id"],
+        },
+      },
+      {
+        name: "add_person_to_group",
+        description: "Add person to group",
+        inputSchema: {
+          type: "object",
+          properties: {
+            group_id: {
+              type: "string",
+              description: "Group ID",
+            },
+            person_id: {
+              type: "string",
+              description: "Person ID",
+            },
+            role: {
+              type: "string",
+              description: "Role (member or leader, default: member)",
+            },
+          },
+          required: ["group_id", "person_id"],
+        },
+      },
+      {
+        name: "remove_person_from_group",
+        description: "Remove person from group",
+        inputSchema: {
+          type: "object",
+          properties: {
+            group_id: {
+              type: "string",
+              description: "Group ID",
+            },
+            membership_id: {
+              type: "string",
+              description: "Membership ID",
+            },
+          },
+          required: ["group_id", "membership_id"],
+        },
+      },
+    ],
+  };
 });
 
-const GetGroupSchema = z.object({
-  group_id: z.string().describe("Group ID"),
-});
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const toolName = request.params?.name;
+  const toolArgs = request.params?.arguments || {};
 
-const CreateGroupSchema = z.object({
-  name: z.string().describe("Group name"),
-  group_type_id: z.string().optional().describe("Group type ID (optional)"),
-  members_confidential: z.boolean().optional().describe("Members confidential (default: true)"),
-  listed: z.boolean().optional().describe("Listed (default: false)"),
-});
+  try {
+    let result: any;
 
-const ListPeopleSchema = z.object({
-  per_page: z.number().optional().describe("Results per page (default: 100)"),
-});
+    switch (toolName) {
+      case "list_groups":
+        result = await api.listGroups(toolArgs.per_page || 100);
+        break;
+      case "get_group":
+        result = await api.getGroup(toolArgs.group_id);
+        break;
+      case "get_group_types":
+        result = await api.getGroupTypes();
+        break;
+      case "create_group":
+        result = await api.createGroup(
+          toolArgs.name,
+          toolArgs.group_type_id,
+          toolArgs.members_confidential !== false,
+          toolArgs.listed === true
+        );
+        break;
+      case "list_people":
+        result = await api.listPeople(toolArgs.per_page || 100);
+        break;
+      case "search_people":
+        result = await api.searchPeopleByName(
+          toolArgs.first_name,
+          toolArgs.last_name
+        );
+        break;
+      case "get_group_memberships":
+        result = await api.getGroupMemberships(
+          toolArgs.group_id,
+          toolArgs.per_page || 100
+        );
+        break;
+      case "add_person_to_group":
+        result = await api.addPersonToGroup(
+          toolArgs.group_id,
+          toolArgs.person_id,
+          toolArgs.role || "member"
+        );
+        break;
+      case "remove_person_from_group":
+        result = await api.removePersonFromGroup(
+          toolArgs.group_id,
+          toolArgs.membership_id
+        );
+        break;
+      default:
+        throw new Error(`Unknown tool: ${toolName}`);
+    }
 
-const SearchPeopleSchema = z.object({
-  first_name: z.string().optional().describe("First name"),
-  last_name: z.string().optional().describe("Last name"),
-});
-
-const GetGroupMembershipsSchema = z.object({
-  group_id: z.string().describe("Group ID"),
-  per_page: z.number().optional().describe("Results per page (default: 100)"),
-});
-
-const AddPersonToGroupSchema = z.object({
-  group_id: z.string().describe("Group ID"),
-  person_id: z.string().describe("Person ID"),
-  role: z.string().optional().describe("Role (member or leader, default: member)"),
-});
-
-const RemovePersonFromGroupSchema = z.object({
-  group_id: z.string().describe("Group ID"),
-  membership_id: z.string().describe("Membership ID"),
-});
-
-// Register tools
-server.registerTool(
-  {
-    name: "list_groups",
-    description: "List all groups in Planning Center",
-    inputSchema: ListGroupsSchema,
-  },
-  async (input) => {
-    const result = await api.listGroups(input.per_page || 100);
     return {
       content: [
         {
@@ -244,177 +406,19 @@ server.registerTool(
         },
       ],
     };
-  }
-);
-
-server.registerTool(
-  {
-    name: "get_group",
-    description: "Get a specific group by ID",
-    inputSchema: GetGroupSchema,
-  },
-  async (input) => {
-    const result = await api.getGroup(input.group_id);
+  } catch (error: any) {
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(result, null, 2),
+          text: `Error: ${error.message}`,
         },
       ],
+      isError: true,
     };
   }
-);
+});
 
-server.registerTool(
-  {
-    name: "get_group_types",
-    description: "Get all available group types",
-    inputSchema: z.object({}),
-  },
-  async () => {
-    const result = await api.getGroupTypes();
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
-  }
-);
-
-server.registerTool(
-  {
-    name: "create_group",
-    description: "Create a new group",
-    inputSchema: CreateGroupSchema,
-  },
-  async (input) => {
-    const result = await api.createGroup(
-      input.name,
-      input.group_type_id,
-      input.members_confidential !== false,
-      input.listed === true
-    );
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
-  }
-);
-
-server.registerTool(
-  {
-    name: "list_people",
-    description: "List all people",
-    inputSchema: ListPeopleSchema,
-  },
-  async (input) => {
-    const result = await api.listPeople(input.per_page || 100);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
-  }
-);
-
-server.registerTool(
-  {
-    name: "search_people",
-    description: "Search people by name",
-    inputSchema: SearchPeopleSchema,
-  },
-  async (input) => {
-    const result = await api.searchPeopleByName(input.first_name, input.last_name);
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
-  }
-);
-
-server.registerTool(
-  {
-    name: "get_group_memberships",
-    description: "Get members of a group",
-    inputSchema: GetGroupMembershipsSchema,
-  },
-  async (input) => {
-    const result = await api.getGroupMemberships(
-      input.group_id,
-      input.per_page || 100
-    );
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
-  }
-);
-
-server.registerTool(
-  {
-    name: "add_person_to_group",
-    description: "Add person to group",
-    inputSchema: AddPersonToGroupSchema,
-  },
-  async (input) => {
-    const result = await api.addPersonToGroup(
-      input.group_id,
-      input.person_id,
-      input.role || "member"
-    );
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
-  }
-);
-
-server.registerTool(
-  {
-    name: "remove_person_from_group",
-    description: "Remove person from group",
-    inputSchema: RemovePersonFromGroupSchema,
-  },
-  async (input) => {
-    const result = await api.removePersonFromGroup(
-      input.group_id,
-      input.membership_id
-    );
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result ? "Success" : "Failed"),
-        },
-      ],
-    };
-  }
-);
-
-// Start server
 async function main() {
   try {
     const groups = await api.listGroups(1);
@@ -428,73 +432,46 @@ async function main() {
 
   const httpServer = http.createServer(async (req, res) => {
     try {
-      // Enable CORS for Cowork
+      // Enable CORS
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-      // Handle preflight
       if (req.method === "OPTIONS") {
         res.writeHead(200);
         res.end();
         return;
       }
 
-      // MCP SSE endpoint
       if (req.url === "/messages" && req.method === "GET") {
         const transport = new SSEServerTransport(req, res);
         await server.connect(transport);
         return;
       }
 
-      // Health check endpoint
+      // Health check
       if (req.url === "/health" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "ok", service: "planning-center-mcp" }));
+        res.end(JSON.stringify({ status: "ok" }));
         return;
       }
 
-      // OAuth discovery endpoints (for compatibility with OAuth-aware clients)
+      // OAuth discovery endpoints
       if (req.url === "/.well-known/oauth-protected-resource" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({
-          protected_resources: [{
-            resource: "planning-center-api",
-            display_name: "Planning Center API"
-          }]
-        }));
+        res.end(JSON.stringify({ protected_resources: [] }));
         return;
       }
 
       if (req.url === "/.well-known/oauth-authorization-server" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({
-          issuer: process.env.SERVER_URL || "https://planning-center-mcp-production-aa9f.up.railway.app",
-          authorization_endpoint: (process.env.SERVER_URL || "https://planning-center-mcp-production-aa9f.up.railway.app") + "/authorize",
-          token_endpoint: (process.env.SERVER_URL || "https://planning-center-mcp-production-aa9f.up.railway.app") + "/token",
-          scopes_supported: ["read", "write"]
-        }));
+        res.end(JSON.stringify({ issuer: "planning-center-mcp" }));
         return;
       }
 
-      // Root endpoint - return server info
-      if (req.url === "/" && req.method === "GET") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({
-          name: "planning-center-mcp",
-          version: "1.0.0",
-          endpoints: {
-            messages: "/messages",
-            health: "/health"
-          }
-        }));
-        return;
-      }
-
-      // Not found
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Not found" }));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error handling request:", error);
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Internal server error" }));
@@ -509,7 +486,6 @@ async function main() {
     console.error(`✓ Planning Center MCP server running on port ${port}`);
   });
 
-  // Handle graceful shutdown
   process.on("SIGTERM", () => {
     console.error("SIGTERM received, shutting down gracefully");
     httpServer.close(() => {
