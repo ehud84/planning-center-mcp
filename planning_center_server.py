@@ -579,16 +579,34 @@ async def remove_person_from_group(params: RemovePersonFromGroupInput) -> str:
 if __name__ == "__main__":
     import sys
     import traceback
+    import uvicorn
+
+    print("=" * 60, file=sys.stderr, flush=True)
+    print("Starting Planning Center MCP Server", file=sys.stderr, flush=True)
+    print(f"PCO_CLIENT_ID configured: {bool(PCO_CLIENT_ID)}", file=sys.stderr, flush=True)
+    print(f"PCO_CLIENT_SECRET configured: {bool(PCO_CLIENT_SECRET)}", file=sys.stderr, flush=True)
+    print("=" * 60, file=sys.stderr, flush=True)
 
     try:
-        print("=" * 60, file=sys.stderr)
-        print("Starting Planning Center MCP Server", file=sys.stderr)
-        print(f"PCO_CLIENT_ID configured: {bool(PCO_CLIENT_ID)}", file=sys.stderr)
-        print(f"PCO_CLIENT_SECRET configured: {bool(PCO_CLIENT_SECRET)}", file=sys.stderr)
-        print("=" * 60, file=sys.stderr)
+        # FastMCP.run() appears to not work properly in containers
+        # Use uvicorn directly with the mcp object
+        # FastMCP should be ASGI3 compatible
+        print("Attempting to start uvicorn with FastMCP...", file=sys.stderr, flush=True)
 
-        mcp.run()
+        host = os.getenv("UVICORN_HOST", "0.0.0.0")
+        port = int(os.getenv("UVICORN_PORT", "8000"))
+
+        print(f"Host: {host}, Port: {port}", file=sys.stderr, flush=True)
+
+        # Try to access the ASGI interface
+        if hasattr(mcp, "__call__"):
+            print("FastMCP is callable, passing directly to uvicorn", file=sys.stderr, flush=True)
+            uvicorn.run(mcp, host=host, port=port)
+        else:
+            print("FastMCP is not callable, trying to find ASGI app", file=sys.stderr, flush=True)
+            print(f"FastMCP attributes: {dir(mcp)}", file=sys.stderr, flush=True)
+            sys.exit(1)
     except Exception as e:
-        print(f"FATAL ERROR: {e}", file=sys.stderr)
-        traceback.print_exc()
+        print(f"FATAL ERROR: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
         sys.exit(1)
