@@ -598,10 +598,6 @@ if __name__ == "__main__":
         host = os.getenv("UVICORN_HOST", "0.0.0.0")
         port = int(os.getenv("UVICORN_PORT", "8000"))
 
-        print(f"Starting SSE-based MCP server on {host}:{port}", file=sys.stderr, flush=True)
-        print(f"mcp.sse_app type: {type(mcp.sse_app)}", file=sys.stderr, flush=True)
-        print(f"mcp.sse_app callable: {callable(mcp.sse_app)}", file=sys.stderr, flush=True)
-
         # FastMCP.sse_app is a factory method—call it to get the ASGI3 app
         uvicorn.run(
             mcp.sse_app(),
