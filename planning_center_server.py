@@ -576,6 +576,28 @@ async def remove_person_from_group(params: RemovePersonFromGroupInput) -> str:
         return _handle_error(e)
 
 
+def create_app_with_health():
+    """Create ASGI app with health check endpoint."""
+    mcp_app = mcp.sse_app()
+
+    async def app_with_health(scope, receive, send):
+        """Wrapper that adds /health endpoint to MCP app."""
+        if scope["type"] == "http" and scope["path"] == "/health":
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [[b"content-type", b"application/json"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b'{"status": "ok"}',
+            })
+        else:
+            await mcp_app(scope, receive, send)
+
+    return app_with_health
+
+
 if __name__ == "__main__":
     import sys
     import traceback
@@ -599,8 +621,10 @@ if __name__ == "__main__":
         port = int(os.getenv("UVICORN_PORT", "8000"))
 
         # FastMCP.sse_app is a factory method—call it to get the ASGI3 app
+        # Wrap it with a health check endpoint for Railway deployment
+        app = create_app_with_health()
         uvicorn.run(
-            mcp.sse_app(),
+            app,
             host=host,
             port=port,
             log_level="debug"
