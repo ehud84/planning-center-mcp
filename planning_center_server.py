@@ -602,9 +602,9 @@ if __name__ == "__main__":
         print(f"mcp.sse_app type: {type(mcp.sse_app)}", file=sys.stderr, flush=True)
         print(f"mcp.sse_app callable: {callable(mcp.sse_app)}", file=sys.stderr, flush=True)
 
-        # FastMCP exposes sse_app which is the ASGI3 app for SSE transport
+        # FastMCP.sse_app is a factory method—call it to get the ASGI3 app
         uvicorn.run(
-            mcp.sse_app,
+            mcp.sse_app(),
             host=host,
             port=port,
             log_level="debug"
