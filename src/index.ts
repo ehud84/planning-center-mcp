@@ -444,7 +444,7 @@ async function main() {
       }
 
       if (req.url === "/messages" && req.method === "GET") {
-        const transport = new SSEServerTransport(req, res);
+        const transport = new SSEServerTransport(req as any, res as any);
         await server.connect(transport);
         return;
       }
