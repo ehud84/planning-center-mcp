@@ -464,8 +464,16 @@ async function main() {
           return;
         }
 
-        const transport = new SSEServerTransport(req as any, res as any);
-        await server.connect(transport);
+        try {
+          const transport = new SSEServerTransport(req as any, res as any);
+          await server.connect(transport);
+        } catch (error) {
+          console.error("Error in SSE transport:", error);
+          if (!res.headersSent) {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Server error" }));
+          }
+        }
         return;
       }
 
