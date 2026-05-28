@@ -1,19 +1,19 @@
-FROM node:18-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json* yarn.lock* ./
-
 # Install dependencies
-RUN npm install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
-COPY src ./src
-COPY tsconfig.json ./
+# Copy the MCP server
+COPY planning_center_server.py .
 
-# Build TypeScript
-RUN npm run build
+# Set environment variables for port
+ENV PORT=8000
 
-# Start the server
-CMD ["npm", "start"]
+# Expose port
+EXPOSE 8000
+
+# Run the server
+CMD ["python", "planning_center_server.py"]
