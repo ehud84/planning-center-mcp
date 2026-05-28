@@ -343,55 +343,55 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const toolName = request.params?.name;
-  const toolArgs = request.params?.arguments || {};
+  const toolArgs = (request.params?.arguments || {}) as Record<string, any>;
 
   try {
     let result: any;
 
     switch (toolName) {
       case "list_groups":
-        result = await api.listGroups(toolArgs.per_page || 100);
+        result = await api.listGroups((toolArgs.per_page as number) || 100);
         break;
       case "get_group":
-        result = await api.getGroup(toolArgs.group_id);
+        result = await api.getGroup(toolArgs.group_id as string);
         break;
       case "get_group_types":
         result = await api.getGroupTypes();
         break;
       case "create_group":
         result = await api.createGroup(
-          toolArgs.name,
-          toolArgs.group_type_id,
-          toolArgs.members_confidential !== false,
-          toolArgs.listed === true
+          toolArgs.name as string,
+          toolArgs.group_type_id as string | undefined,
+          (toolArgs.members_confidential as boolean | undefined) !== false,
+          (toolArgs.listed as boolean | undefined) === true
         );
         break;
       case "list_people":
-        result = await api.listPeople(toolArgs.per_page || 100);
+        result = await api.listPeople((toolArgs.per_page as number) || 100);
         break;
       case "search_people":
         result = await api.searchPeopleByName(
-          toolArgs.first_name,
-          toolArgs.last_name
+          toolArgs.first_name as string | undefined,
+          toolArgs.last_name as string | undefined
         );
         break;
       case "get_group_memberships":
         result = await api.getGroupMemberships(
-          toolArgs.group_id,
-          toolArgs.per_page || 100
+          toolArgs.group_id as string,
+          (toolArgs.per_page as number) || 100
         );
         break;
       case "add_person_to_group":
         result = await api.addPersonToGroup(
-          toolArgs.group_id,
-          toolArgs.person_id,
-          toolArgs.role || "member"
+          toolArgs.group_id as string,
+          toolArgs.person_id as string,
+          (toolArgs.role as string) || "member"
         );
         break;
       case "remove_person_from_group":
         result = await api.removePersonFromGroup(
-          toolArgs.group_id,
-          toolArgs.membership_id
+          toolArgs.group_id as string,
+          toolArgs.membership_id as string
         );
         break;
       default:
