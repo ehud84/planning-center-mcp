@@ -579,7 +579,12 @@ async def remove_person_from_group(params: RemovePersonFromGroupInput) -> str:
 if __name__ == "__main__":
     import sys
     import traceback
-    import uvicorn
+    import logging
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
 
     print("=" * 60, file=sys.stderr, flush=True)
     print("Starting Planning Center MCP Server", file=sys.stderr, flush=True)
@@ -588,14 +593,22 @@ if __name__ == "__main__":
     print("=" * 60, file=sys.stderr, flush=True)
 
     try:
+        import uvicorn
+
         host = os.getenv("UVICORN_HOST", "0.0.0.0")
         port = int(os.getenv("UVICORN_PORT", "8000"))
 
         print(f"Starting SSE-based MCP server on {host}:{port}", file=sys.stderr, flush=True)
+        print(f"mcp.sse_app type: {type(mcp.sse_app)}", file=sys.stderr, flush=True)
+        print(f"mcp.sse_app callable: {callable(mcp.sse_app)}", file=sys.stderr, flush=True)
 
         # FastMCP exposes sse_app which is the ASGI3 app for SSE transport
-        # This is what Cowork expects
-        uvicorn.run(mcp.sse_app, host=host, port=port, log_level="info")
+        uvicorn.run(
+            mcp.sse_app,
+            host=host,
+            port=port,
+            log_level="debug"
+        )
     except Exception as e:
         print(f"FATAL ERROR: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
