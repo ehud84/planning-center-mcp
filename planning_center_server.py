@@ -22,6 +22,7 @@ mcp = FastMCP("planning_center_mcp")
 # OAuth state management (in-memory)
 _oauth_codes: Dict[str, Dict[str, Any]] = {}
 _oauth_tokens: Dict[str, Dict[str, Any]] = {}
+_oauth_clients: Dict[str, Dict[str, Any]] = {}
 
 # Configuration from environment
 PCO_CLIENT_ID = os.getenv("PCO_CLIENT_ID", "")
@@ -615,15 +616,63 @@ def create_app_with_oauth():
             })
             return
 
+        # OAuth client registration endpoint (dynamic client registration)
+        if path == "/register" and method == "POST":
+            # Read request body
+            body_parts = []
+            while True:
+                message = await receive()
+                body_parts.append(message.get("body", b""))
+                if not message.get("more_body", False):
+                    break
+
+            body = b"".join(body_parts).decode()
+            try:
+                request_data = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                request_data = {}
+
+            # Generate a new client ID and secret
+            client_id = secrets.token_urlsafe(16)
+            client_secret = secrets.token_urlsafe(32)
+
+            # Store the client
+            _oauth_clients[client_id] = {
+                "client_secret": client_secret,
+                "registered_at": time.time(),
+                "redirect_uris": request_data.get("redirect_uris", [])
+            }
+
+            # Return the client credentials
+            response = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "client_id_issued_at": int(time.time()),
+                "client_secret_expires_at": 0  # Never expires
+            }
+
+            await send({
+                "type": "http.response.start",
+                "status": 201,
+                "headers": [[b"content-type", b"application/json"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": json.dumps(response).encode(),
+            })
+            return
+
         # OAuth authorization server metadata
         if path == "/.well-known/oauth-authorization-server":
             metadata = {
                 "issuer": server_url,
                 "authorization_endpoint": f"{server_url}/authorize",
                 "token_endpoint": f"{server_url}/token",
+                "registration_endpoint": f"{server_url}/register",
                 "code_challenge_methods_supported": ["S256"],
                 "response_types_supported": ["code"],
-                "grant_types_supported": ["authorization_code"]
+                "grant_types_supported": ["authorization_code"],
+                "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"]
             }
             await send({
                 "type": "http.response.start",
