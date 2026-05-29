@@ -8,13 +8,20 @@ people search, and membership operations.
 
 import os
 import json
+import secrets
+import time
 from typing import Optional, List, Dict, Any
+from urllib.parse import urlencode, parse_qs, urlparse
 from pydantic import BaseModel, Field, ConfigDict
 from mcp.server.fastmcp import FastMCP
 import httpx
 
 # Initialize the MCP server
 mcp = FastMCP("planning_center_mcp")
+
+# OAuth state management (in-memory)
+_oauth_codes: Dict[str, Dict[str, Any]] = {}
+_oauth_tokens: Dict[str, Dict[str, Any]] = {}
 
 # Configuration from environment
 PCO_CLIENT_ID = os.getenv("PCO_CLIENT_ID", "")
@@ -576,13 +583,27 @@ async def remove_person_from_group(params: RemovePersonFromGroupInput) -> str:
         return _handle_error(e)
 
 
-def create_app_with_health():
-    """Create ASGI app with health check endpoint."""
+def create_app_with_oauth():
+    """Create ASGI app with OAuth and health check endpoints."""
     mcp_app = mcp.sse_app()
 
-    async def app_with_health(scope, receive, send):
-        """Wrapper that adds /health endpoint to MCP app."""
-        if scope["type"] == "http" and scope["path"] == "/health":
+    async def app_with_oauth(scope, receive, send):
+        """Wrapper that adds OAuth and health check endpoints to MCP app."""
+        if scope["type"] != "http":
+            await mcp_app(scope, receive, send)
+            return
+
+        path = scope["path"]
+        method = scope["method"]
+
+        # Determine server URL from Host header
+        headers = {k.decode(): v.decode() for k, v in scope.get("headers", [])}
+        host = headers.get("host", "localhost:8000")
+        scheme = scope.get("scheme", "https")
+        server_url = f"{scheme}://{host}"
+
+        # Health check endpoint
+        if path == "/health":
             await send({
                 "type": "http.response.start",
                 "status": 200,
@@ -592,10 +613,152 @@ def create_app_with_health():
                 "type": "http.response.body",
                 "body": b'{"status": "ok"}',
             })
-        else:
-            await mcp_app(scope, receive, send)
+            return
 
-    return app_with_health
+        # OAuth authorization server metadata
+        if path == "/.well-known/oauth-authorization-server":
+            metadata = {
+                "issuer": server_url,
+                "authorization_endpoint": f"{server_url}/authorize",
+                "token_endpoint": f"{server_url}/token",
+                "code_challenge_methods_supported": ["S256"],
+                "response_types_supported": ["code"],
+                "grant_types_supported": ["authorization_code"]
+            }
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [[b"content-type", b"application/json"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": json.dumps(metadata).encode(),
+            })
+            return
+
+        # OAuth protected resource metadata
+        if path == "/.well-known/oauth-protected-resource":
+            metadata = {
+                "resource_documentation_uri": f"{server_url}",
+                "resource_server_uri": server_url
+            }
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [[b"content-type", b"application/json"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": json.dumps(metadata).encode(),
+            })
+            return
+
+        # OAuth authorization endpoint
+        if path == "/authorize" and method == "GET":
+            # Parse query parameters
+            query_string = scope.get("query_string", b"").decode()
+            params = parse_qs(query_string)
+
+            redirect_uri = params.get("redirect_uri", [""])[0]
+            state = params.get("state", [""])[0]
+            code_challenge = params.get("code_challenge", [""])[0]
+
+            if not redirect_uri:
+                await send({
+                    "type": "http.response.start",
+                    "status": 400,
+                    "headers": [[b"content-type", b"application/json"]],
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": b'{"error": "redirect_uri required"}',
+                })
+                return
+
+            # Generate authorization code
+            auth_code = secrets.token_urlsafe(32)
+            _oauth_codes[auth_code] = {
+                "redirect_uri": redirect_uri,
+                "code_challenge": code_challenge,
+                "created_at": time.time(),
+                "expires_in": 600
+            }
+
+            # Redirect to redirect_uri with authorization code
+            redirect_params = {"code": auth_code}
+            if state:
+                redirect_params["state"] = state
+            redirect_url = f"{redirect_uri}?{urlencode(redirect_params)}"
+
+            await send({
+                "type": "http.response.start",
+                "status": 302,
+                "headers": [[b"location", redirect_url.encode()]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": b"",
+            })
+            return
+
+        # OAuth token endpoint
+        if path == "/token" and method == "POST":
+            # Read request body
+            body_parts = []
+            while True:
+                message = await receive()
+                body_parts.append(message.get("body", b""))
+                if not message.get("more_body", False):
+                    break
+
+            body = b"".join(body_parts).decode()
+            params = parse_qs(body)
+
+            code = params.get("code", [""])[0]
+            if not code or code not in _oauth_codes:
+                await send({
+                    "type": "http.response.start",
+                    "status": 400,
+                    "headers": [[b"content-type", b"application/json"]],
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": b'{"error": "invalid_grant"}',
+                })
+                return
+
+            # Generate access token
+            access_token = secrets.token_urlsafe(32)
+            _oauth_tokens[access_token] = {
+                "code": code,
+                "created_at": time.time(),
+                "expires_in": 3600
+            }
+
+            # Remove used authorization code
+            del _oauth_codes[code]
+
+            token_response = {
+                "access_token": access_token,
+                "token_type": "Bearer",
+                "expires_in": 3600
+            }
+
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [[b"content-type", b"application/json"]],
+            })
+            await send({
+                "type": "http.response.body",
+                "body": json.dumps(token_response).encode(),
+            })
+            return
+
+        # Delegate everything else to MCP app
+        await mcp_app(scope, receive, send)
+
+    return app_with_oauth
 
 
 if __name__ == "__main__":
@@ -621,8 +784,8 @@ if __name__ == "__main__":
         port = int(os.getenv("UVICORN_PORT", "8000"))
 
         # FastMCP.sse_app is a factory method—call it to get the ASGI3 app
-        # Wrap it with a health check endpoint for Railway deployment
-        app = create_app_with_health()
+        # Wrap it with OAuth and health check endpoints
+        app = create_app_with_oauth()
         uvicorn.run(
             app,
             host=host,
