@@ -25,8 +25,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 Transport = Literal["stdio", "streamable-http"]
-ServiceName = Literal["groups", "people"]
+ServiceName = Literal["groups", "people", "services"]
 GroupRole = Literal["member", "leader"]
+PlanTimeFilter = Literal["future", "past"]
 JsonObject = dict[str, Any]
 
 LOGGER = logging.getLogger("planning_center_mcp")
@@ -37,9 +38,11 @@ VALID_TRANSPORTS: set[str] = {"stdio", "streamable-http"}
 PCO_API_ROOT = os.getenv("PCO_API_ROOT", "https://api.planningcenteronline.com").rstrip("/")
 PCO_GROUPS_API_BASE = os.getenv("PCO_GROUPS_API_BASE", f"{PCO_API_ROOT}/groups/v2").rstrip("/")
 PCO_PEOPLE_API_BASE = os.getenv("PCO_PEOPLE_API_BASE", f"{PCO_API_ROOT}/people/v2").rstrip("/")
+PCO_SERVICES_API_BASE = os.getenv("PCO_SERVICES_API_BASE", f"{PCO_API_ROOT}/services/v2").rstrip("/")
 PCO_SERVICE_BASE_URLS: dict[ServiceName, str] = {
     "groups": PCO_GROUPS_API_BASE,
     "people": PCO_PEOPLE_API_BASE,
+    "services": PCO_SERVICES_API_BASE,
 }
 
 
@@ -159,7 +162,7 @@ mcp = FastMCP(
     "planning_center_mcp",
     instructions=(
         "Tools for listing, searching, and managing Planning Center Online "
-        "Groups and People records."
+        "Groups, People, and Services (service plans, teams, and scheduling) records."
     ),
     host=_server_host(),
     port=_server_port(),
@@ -375,6 +378,88 @@ def _membership_summary(membership: JsonObject) -> JsonObject:
         "type": membership.get("type"),
         "role": attrs.get("role"),
         "person_id": _relationship_id(membership, "person"),
+        "attributes": attrs,
+    }
+
+
+def _service_type_summary(service_type: JsonObject) -> JsonObject:
+    attrs = _attributes(service_type)
+    return {
+        "id": service_type.get("id"),
+        "type": service_type.get("type"),
+        "name": attrs.get("name"),
+        "frequency": attrs.get("frequency"),
+        "sequence": attrs.get("sequence"),
+        "attributes": attrs,
+    }
+
+
+def _plan_summary(plan: JsonObject) -> JsonObject:
+    attrs = _attributes(plan)
+    return {
+        "id": plan.get("id"),
+        "type": plan.get("type"),
+        "title": attrs.get("title"),
+        "dates": attrs.get("dates"),
+        "short_dates": attrs.get("short_dates"),
+        "sort_date": attrs.get("sort_date"),
+        "series_title": attrs.get("series_title"),
+        "plan_people_count": attrs.get("plan_people_count"),
+        "needed_positions_count": attrs.get("needed_positions_count"),
+        "service_type_id": _relationship_id(plan, "service_type"),
+        "attributes": attrs,
+    }
+
+
+def _team_summary(team: JsonObject) -> JsonObject:
+    attrs = _attributes(team)
+    return {
+        "id": team.get("id"),
+        "type": team.get("type"),
+        "name": attrs.get("name"),
+        "schedule_to": attrs.get("schedule_to"),
+        "sequence": attrs.get("sequence"),
+        "default_status": attrs.get("default_status"),
+        "service_type_id": _relationship_id(team, "service_type"),
+        "attributes": attrs,
+    }
+
+
+def _team_position_summary(position: JsonObject) -> JsonObject:
+    attrs = _attributes(position)
+    return {
+        "id": position.get("id"),
+        "type": position.get("type"),
+        "name": attrs.get("name"),
+        "sequence": attrs.get("sequence"),
+        "team_id": _relationship_id(position, "team"),
+        "attributes": attrs,
+    }
+
+
+# Planning Center encodes a scheduled person's response as a single letter.
+_SCHEDULE_STATUS_LABELS: dict[str, str] = {
+    "C": "Confirmed",
+    "U": "Unconfirmed",
+    "D": "Declined",
+}
+
+
+def _scheduled_person_summary(plan_person: JsonObject) -> JsonObject:
+    attrs = _attributes(plan_person)
+    status = attrs.get("status")
+    status_label = _SCHEDULE_STATUS_LABELS.get(status, status) if isinstance(status, str) else status
+    return {
+        "id": plan_person.get("id"),
+        "type": plan_person.get("type"),
+        "name": attrs.get("name"),
+        "status": status,
+        "status_label": status_label,
+        "team_position_name": attrs.get("team_position_name"),
+        "decline_reason": attrs.get("decline_reason"),
+        "notes": attrs.get("notes"),
+        "person_id": _relationship_id(plan_person, "person"),
+        "team_id": _relationship_id(plan_person, "team"),
         "attributes": attrs,
     }
 
@@ -604,6 +689,155 @@ async def pco_remove_person_from_group(
         "group_id": group_id,
         "membership_id": membership_id,
     }
+
+
+@mcp.tool(title="List Service Types", annotations=READ_ONLY, structured_output=True)
+async def pco_list_service_types(
+    per_page: Annotated[
+        int,
+        Field(description="Number of service types to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 100,
+) -> dict[str, Any]:
+    """List Planning Center Services service types.
+
+    Service types are the top-level categories that contain plans (for example
+    "Sunday Mornings" or "Youth Service"). Use the returned id with pco_list_plans
+    and pco_list_teams.
+    """
+    data = await _api_request("services", "service_types", params={"per_page": per_page})
+    service_types = [
+        _service_type_summary(service_type)
+        for service_type in data.get("data", [])
+        if isinstance(service_type, dict)
+    ]
+    return _collection_response(data, "service_types", service_types)
+
+
+@mcp.tool(title="List Plans", annotations=READ_ONLY, structured_output=True)
+async def pco_list_plans(
+    service_type_id: Annotated[
+        str,
+        Field(description="Planning Center service type ID (from pco_list_service_types)", min_length=1),
+    ],
+    time_filter: Annotated[
+        PlanTimeFilter | None,
+        Field(description="Restrict to 'future' or 'past' plans; omit for all plans"),
+    ] = None,
+    per_page: Annotated[
+        int,
+        Field(description="Number of plans to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 25,
+    order: Annotated[
+        str,
+        Field(description="Sort order, e.g. 'sort_date' (oldest first) or '-sort_date' (newest first)"),
+    ] = "sort_date",
+) -> dict[str, Any]:
+    """List plans (individual service dates) within a Planning Center service type.
+
+    Use time_filter='future' to find upcoming plans. The returned plan id is used by
+    pco_list_scheduled_people to see who is scheduled to serve.
+    """
+    data = await _api_request(
+        "services",
+        f"service_types/{service_type_id}/plans",
+        params={"per_page": per_page, "order": order, "filter": time_filter},
+    )
+    plans = [_plan_summary(plan) for plan in data.get("data", []) if isinstance(plan, dict)]
+    response = _collection_response(data, "plans", plans)
+    response["service_type_id"] = service_type_id
+    return response
+
+
+@mcp.tool(title="List Teams", annotations=READ_ONLY, structured_output=True)
+async def pco_list_teams(
+    service_type_id: Annotated[
+        str | None,
+        Field(
+            description="Optional service type ID to list only that service type's teams; omit for all teams",
+            min_length=1,
+        ),
+    ] = None,
+    per_page: Annotated[
+        int,
+        Field(description="Number of teams to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 100,
+) -> dict[str, Any]:
+    """List Planning Center Services teams (for example Band, Vocals, or Tech).
+
+    Pass a service_type_id to scope teams to a single service type, or omit it to
+    list every team in the organization.
+    """
+    endpoint = f"service_types/{service_type_id}/teams" if service_type_id else "teams"
+    data = await _api_request("services", endpoint, params={"per_page": per_page})
+    teams = [_team_summary(team) for team in data.get("data", []) if isinstance(team, dict)]
+    response = _collection_response(data, "teams", teams)
+    if service_type_id:
+        response["service_type_id"] = service_type_id
+    return response
+
+
+@mcp.tool(title="List Team Positions", annotations=READ_ONLY, structured_output=True)
+async def pco_list_team_positions(
+    team_id: Annotated[
+        str,
+        Field(description="Planning Center Services team ID (from pco_list_teams)", min_length=1),
+    ],
+    per_page: Annotated[
+        int,
+        Field(description="Number of team positions to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 100,
+) -> dict[str, Any]:
+    """List the positions within a Planning Center Services team (for example Lead Vocal or Drums)."""
+    data = await _api_request(
+        "services",
+        f"teams/{team_id}/team_positions",
+        params={"per_page": per_page},
+    )
+    positions = [
+        _team_position_summary(position)
+        for position in data.get("data", [])
+        if isinstance(position, dict)
+    ]
+    response = _collection_response(data, "team_positions", positions)
+    response["team_id"] = team_id
+    return response
+
+
+@mcp.tool(title="List Scheduled People", annotations=READ_ONLY, structured_output=True)
+async def pco_list_scheduled_people(
+    service_type_id: Annotated[
+        str,
+        Field(description="Planning Center service type ID (from pco_list_service_types)", min_length=1),
+    ],
+    plan_id: Annotated[
+        str,
+        Field(description="Planning Center plan ID (from pco_list_plans)", min_length=1),
+    ],
+    per_page: Annotated[
+        int,
+        Field(description="Number of scheduled people to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 100,
+) -> dict[str, Any]:
+    """List the people scheduled to serve on a Planning Center plan.
+
+    Each entry includes the person's team position and confirmation status, where
+    status is 'C' (Confirmed), 'U' (Unconfirmed), or 'D' (Declined); status_label
+    gives the human-readable form.
+    """
+    data = await _api_request(
+        "services",
+        f"service_types/{service_type_id}/plans/{plan_id}/team_members",
+        params={"per_page": per_page},
+    )
+    scheduled_people = [
+        _scheduled_person_summary(plan_person)
+        for plan_person in data.get("data", [])
+        if isinstance(plan_person, dict)
+    ]
+    response = _collection_response(data, "scheduled_people", scheduled_people)
+    response["service_type_id"] = service_type_id
+    response["plan_id"] = plan_id
+    return response
 
 
 def main() -> None:
