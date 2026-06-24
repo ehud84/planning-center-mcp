@@ -13,7 +13,9 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import time
 from typing import Annotated, Any, Literal, cast
+from urllib.parse import parse_qs, urlencode
 
 import httpx
 from mcp.server.auth.provider import AccessToken
@@ -22,7 +24,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 Transport = Literal["stdio", "streamable-http"]
 ServiceName = Literal["groups", "people", "services"]
@@ -198,6 +200,145 @@ DESTRUCTIVE = ToolAnnotations(
 async def health_check(request: Request) -> Response:
     """Health check endpoint for hosted deployments."""
     return JSONResponse({"status": "ok"})
+
+
+# ---------------------------------------------------------------------------
+# OAuth compatibility layer
+#
+# Cowork's custom-connector sign-in performs OAuth 2.0 dynamic client
+# registration followed by an authorization-code exchange before it will
+# connect to an MCP server. FastMCP does not expose those endpoints on its own,
+# so we provide a lightweight in-memory implementation here to satisfy the
+# connector handshake. The /mcp endpoint is already open, so these routes exist
+# to complete the sign-in flow rather than to gate access. State is in-memory
+# and intentionally resets on redeploy.
+# ---------------------------------------------------------------------------
+_oauth_codes: dict[str, dict[str, Any]] = {}
+_oauth_tokens: dict[str, dict[str, Any]] = {}
+_oauth_clients: dict[str, dict[str, Any]] = {}
+
+
+def _oauth_base_url(request: Request) -> str:
+    """Public base URL for OAuth metadata, honoring the Railway TLS proxy."""
+    scheme = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("host", "localhost:8000")
+    return f"{scheme}://{host}"
+
+
+@mcp.custom_route(
+    "/.well-known/oauth-authorization-server", methods=["GET"], include_in_schema=False
+)
+async def oauth_authorization_server_metadata(request: Request) -> Response:
+    base_url = _oauth_base_url(request)
+    return JSONResponse(
+        {
+            "issuer": base_url,
+            "authorization_endpoint": f"{base_url}/authorize",
+            "token_endpoint": f"{base_url}/token",
+            "registration_endpoint": f"{base_url}/register",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": [
+                "client_secret_basic",
+                "client_secret_post",
+                "none",
+            ],
+        }
+    )
+
+
+@mcp.custom_route(
+    "/.well-known/oauth-protected-resource", methods=["GET"], include_in_schema=False
+)
+async def oauth_protected_resource_metadata(request: Request) -> Response:
+    base_url = _oauth_base_url(request)
+    return JSONResponse(
+        {
+            "resource": base_url,
+            "authorization_servers": [base_url],
+        }
+    )
+
+
+@mcp.custom_route("/register", methods=["POST"], include_in_schema=False)
+async def oauth_register(request: Request) -> Response:
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - tolerate any malformed/empty body
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    client_id = secrets.token_urlsafe(16)
+    client_secret = secrets.token_urlsafe(32)
+    _oauth_clients[client_id] = {
+        "client_secret": client_secret,
+        "registered_at": time.time(),
+        "redirect_uris": body.get("redirect_uris", []),
+    }
+    return JSONResponse(
+        {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "client_id_issued_at": int(time.time()),
+            "client_secret_expires_at": 0,
+            "redirect_uris": body.get("redirect_uris", []),
+            "token_endpoint_auth_method": body.get(
+                "token_endpoint_auth_method", "client_secret_post"
+            ),
+        },
+        status_code=201,
+    )
+
+
+@mcp.custom_route("/authorize", methods=["GET"], include_in_schema=False)
+async def oauth_authorize(request: Request) -> Response:
+    params = request.query_params
+    redirect_uri = params.get("redirect_uri", "")
+    state = params.get("state", "")
+    code_challenge = params.get("code_challenge", "")
+
+    if not redirect_uri:
+        return JSONResponse(
+            {"error": "invalid_request", "error_description": "redirect_uri is required"},
+            status_code=400,
+        )
+
+    auth_code = secrets.token_urlsafe(32)
+    _oauth_codes[auth_code] = {
+        "redirect_uri": redirect_uri,
+        "code_challenge": code_challenge,
+        "created_at": time.time(),
+    }
+
+    redirect_params = {"code": auth_code}
+    if state:
+        redirect_params["state"] = state
+    separator = "&" if "?" in redirect_uri else "?"
+    location = f"{redirect_uri}{separator}{urlencode(redirect_params)}"
+    return RedirectResponse(url=location, status_code=302)
+
+
+@mcp.custom_route("/token", methods=["POST"], include_in_schema=False)
+async def oauth_token(request: Request) -> Response:
+    raw_body = (await request.body()).decode("utf-8", errors="ignore")
+    form = parse_qs(raw_body)
+    code = form.get("code", [""])[0]
+
+    if not code or code not in _oauth_codes:
+        return JSONResponse({"error": "invalid_grant"}, status_code=400)
+
+    _oauth_codes.pop(code, None)
+    access_token = secrets.token_urlsafe(32)
+    _oauth_tokens[access_token] = {"created_at": time.time()}
+    return JSONResponse(
+        {
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_in": 3600,
+        }
+    )
 
 
 def _pco_credentials() -> tuple[str, str]:
