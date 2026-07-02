@@ -25,6 +25,7 @@ Hosted HTTP defaults to `0.0.0.0:${PORT:-8000}` and exposes:
 
 - MCP: `https://<host>/mcp`
 - Health: `https://<host>/health`
+- Roster page: `https://<host>/roster` (only when `ROSTER_PIN` is set)
 
 For public hosted deployments, set a long random `MCP_BEARER_TOKEN` and configure clients to send `Authorization: Bearer <token>`. Without this, anyone with the URL can use the MCP tools against the configured Planning Center credentials.
 
@@ -58,6 +59,7 @@ PCO_CLIENT_ID=...
 PCO_CLIENT_SECRET=...
 MCP_PUBLIC_URL=https://<your-app>.up.railway.app
 MCP_BEARER_TOKEN=<long-random-token>
+ROSTER_PIN=<4-digit-pin>
 ```
 
 Connect MCP clients to:
@@ -88,8 +90,11 @@ docker run --rm -p 8000:8000 \
   -e PCO_CLIENT_ID=x \
   -e PCO_CLIENT_SECRET=y \
   -e MCP_BEARER_TOKEN=dev-token \
+  -e ROSTER_PIN=1234 \
   planning-center-mcp
 ```
+
+Then open the roster at `http://localhost:8000/roster` and enter the PIN.
 
 Check health:
 
@@ -104,6 +109,34 @@ http://localhost:8000/mcp
 ```
 
 If `MCP_BEARER_TOKEN` is set, include `Authorization: Bearer dev-token`.
+
+## Mobile roster page
+
+A PIN-protected, mobile-friendly roster is served at `/roster` when `ROSTER_PIN`
+is set. It lists everyone on a Planning Center **Services** team and the teams
+they serve on, with a By-Person / By-Team toggle, search, and sort. Data is
+fetched live from Planning Center on each page load, server-side — credentials
+never reach the browser.
+
+```env
+ROSTER_PIN=1234
+# Optional: keep logins valid across redeploys by pinning the cookie secret.
+# ROSTER_COOKIE_SECRET=<long-random-string>
+```
+
+Then open `https://<your-app>.up.railway.app/roster` on a phone, enter the PIN,
+and the roster loads. A signed, HttpOnly cookie keeps the viewer signed in for
+12 hours; `/roster/logout` clears it.
+
+Notes:
+
+- The PIN is verified server-side; the roster data is only rendered after a
+  correct PIN. Teams that repeat across service types (e.g. several "Band"
+  records) are combined into one, and stray whitespace in team names is
+  normalized so duplicates merge.
+- A short numeric PIN is a light gate, not strong security. Anyone with the URL
+  can attempt PINs. For anything sensitive, prefer a longer `ROSTER_PIN` and/or
+  keep the URL private.
 
 ## Planning Center API bases
 

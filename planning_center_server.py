@@ -10,6 +10,9 @@ route for platform health checks.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
 import os
 import secrets
@@ -24,7 +27,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 Transport = Literal["stdio", "streamable-http"]
 ServiceName = Literal["groups", "people", "services"]
@@ -978,6 +981,350 @@ async def pco_list_scheduled_people(
     response = _collection_response(data, "scheduled_people", scheduled_people)
     response["service_type_id"] = service_type_id
     response["plan_id"] = plan_id
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Mobile roster web page
+#
+# A PIN-protected, mobile-friendly HTML page at /roster that shows everyone on a
+# Planning Center Services team and the teams they serve on. Data is fetched
+# live from Planning Center server-side (credentials never reach the browser).
+# Access is gated by a short PIN (ROSTER_PIN) verified server-side; a signed,
+# HttpOnly cookie keeps the viewer logged in for 12 hours.
+# ---------------------------------------------------------------------------
+ROSTER_COOKIE = "pco_roster_auth"
+ROSTER_COOKIE_TTL = 12 * 60 * 60  # 12 hours
+
+
+def _roster_pin() -> str:
+    return os.getenv("ROSTER_PIN", "").strip()
+
+
+def _roster_secret() -> bytes:
+    explicit = os.getenv("ROSTER_COOKIE_SECRET", "").strip()
+    if explicit:
+        return explicit.encode("utf-8")
+    # Stable per-deployment secret derived from server-only values, so cookies
+    # survive restarts without requiring an extra env var.
+    base = f"roster|{_roster_pin()}|{os.getenv('PCO_CLIENT_SECRET', '')}"
+    return hashlib.sha256(base.encode("utf-8")).digest()
+
+
+def _make_roster_cookie(ttl: int = ROSTER_COOKIE_TTL) -> str:
+    expires = str(int(time.time()) + ttl)
+    signature = hmac.new(_roster_secret(), expires.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{expires}.{signature}"
+
+
+def _valid_roster_cookie(value: str | None) -> bool:
+    if not value or "." not in value:
+        return False
+    expires, signature = value.rsplit(".", 1)
+    expected = hmac.new(_roster_secret(), expires.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return False
+    try:
+        return int(expires) > int(time.time())
+    except ValueError:
+        return False
+
+
+def _request_is_https(request: Request) -> bool:
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return proto == "https" or request.url.scheme == "https"
+
+
+async def _build_roster_payload() -> dict[str, Any]:
+    """Fetch every Services team with its people and build the roster model.
+
+    Teams are replicated per service type in Planning Center (e.g. many separate
+    "Band" records), so we collapse them by trimmed name and union the members.
+    """
+    teams_raw: list[JsonObject] = []
+    included: dict[str, JsonObject] = {}
+    offset = 0
+    for _ in range(50):  # safety bound
+        page = await _api_request(
+            "services",
+            "teams",
+            params={"include": "people", "per_page": 100, "offset": offset},
+        )
+        data = [t for t in page.get("data", []) if isinstance(t, dict)]
+        teams_raw.extend(data)
+        for record in page.get("included", []):
+            if isinstance(record, dict) and record.get("id") is not None:
+                included[str(record["id"])] = record
+        meta = page.get("meta", {}) if isinstance(page.get("meta"), dict) else {}
+        total = meta.get("total_count", len(teams_raw))
+        offset += len(data)
+        if not data or offset >= total:
+            break
+
+    people: dict[str, JsonObject] = {}
+    for pid, record in included.items():
+        if record.get("type") != "Person":
+            continue
+        attrs = _attributes(record)
+        name = attrs.get("full_name") or " ".join(
+            part for part in (attrs.get("first_name"), attrs.get("last_name")) if part
+        ) or f"Person {pid}"
+        links = record.get("links") if isinstance(record.get("links"), dict) else {}
+        people[pid] = {
+            "id": pid,
+            "name": name,
+            "last": attrs.get("last_name") or "",
+            "url": links.get("html"),
+            "teams": set(),
+        }
+
+    by_name: dict[str, JsonObject] = {}
+    for team in teams_raw:
+        attrs = _attributes(team)
+        team_name = (attrs.get("name") or "").strip() or "(Unnamed team)"
+        rel = team.get("relationships", {}) if isinstance(team.get("relationships"), dict) else {}
+        rel_people = rel.get("people", {}) if isinstance(rel.get("people"), dict) else {}
+        member_refs = rel_people.get("data", []) if isinstance(rel_people.get("data"), list) else []
+        entry = by_name.setdefault(team_name, {"name": team_name, "ids": set(), "instances": 0})
+        entry["instances"] += 1
+        for ref in member_refs:
+            if not isinstance(ref, dict):
+                continue
+            pid = str(ref.get("id"))
+            if pid not in people:
+                people[pid] = {"id": pid, "name": f"Person {pid}", "last": "", "url": None, "teams": set()}
+            entry["ids"].add(pid)
+            people[pid]["teams"].add(team_name)
+
+    teams_out = []
+    for entry in by_name.values():
+        members = [
+            {"name": people[pid]["name"], "last": people[pid]["last"], "url": people[pid]["url"]}
+            for pid in entry["ids"]
+        ]
+        members.sort(key=lambda m: ((m["last"] or m["name"]).lower(), m["name"].lower()))
+        teams_out.append({"name": entry["name"], "instances": entry["instances"], "members": members})
+    teams_out.sort(key=lambda t: t["name"].lower())
+
+    people_out = []
+    for person in people.values():
+        if not person["teams"]:
+            continue
+        people_out.append(
+            {
+                "name": person["name"],
+                "last": person["last"],
+                "url": person["url"],
+                "teams": sorted(person["teams"], key=str.lower),
+            }
+        )
+    people_out.sort(key=lambda p: ((p["last"] or p["name"]).lower(), p["name"].lower()))
+
+    return {"people": people_out, "teams": teams_out, "generated_at": int(time.time())}
+
+
+_ROSTER_LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Team Roster</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f6f7f9;color:#1c2430;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.box{background:#fff;border:1px solid #e6e9ee;border-radius:16px;padding:28px 24px;max-width:340px;width:100%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.05)}
+h1{font-size:19px;margin:0 0 4px}
+p{color:#667085;font-size:13px;margin:0 0 20px}
+input{width:100%;font-size:26px;text-align:center;letter-spacing:10px;padding:14px;border:1px solid #d7dce3;border-radius:12px;background:#fafbfc}
+input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+button{margin-top:16px;width:100%;padding:14px;font-size:15px;font-weight:600;color:#fff;background:#2563eb;border:0;border-radius:12px;cursor:pointer}
+button:active{background:#1d4ed8}
+.err{color:#b42318;font-size:13px;margin-top:14px;min-height:18px}
+</style></head><body>
+<form class="box" method="post" action="/roster/login">
+<h1>Team Roster</h1>
+<p>Enter the access PIN to view.</p>
+<input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" autofocus placeholder="••••" aria-label="PIN">
+<button type="submit">View roster</button>
+<div class="err">__ERROR__</div>
+</form></body></html>"""
+
+
+def _roster_login_html(error: bool = False) -> str:
+    return _ROSTER_LOGIN_HTML.replace(
+        "__ERROR__", "Incorrect PIN. Try again." if error else ""
+    )
+
+
+def _roster_message_html(title: str, message: str) -> str:
+    safe_title = title.replace("<", "&lt;")
+    safe_message = message.replace("<", "&lt;")
+    return (
+        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<title>Team Roster</title><style>:root{color-scheme:light}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+        "background:#f6f7f9;color:#1c2430;display:flex;min-height:100vh;align-items:center;"
+        "justify-content:center;margin:0;padding:24px}.b{max-width:380px;text-align:center}"
+        "h1{font-size:18px}p{color:#667085;font-size:14px;line-height:1.5}</style></head>"
+        f"<body><div class=\"b\"><h1>{safe_title}</h1><p>{safe_message}</p></div></body></html>"
+    )
+
+
+_ROSTER_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Services Team Roster</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f6f7f9;color:#1c2430;font-size:15px}
+.wrap{max-width:820px;margin:0 auto;padding:16px 14px 60px}
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:2px}
+h1{font-size:19px;margin:0}
+.logout{font-size:12px;color:#667085;text-decoration:none}
+.sub{color:#667085;font-size:12px;margin:0 0 14px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}
+.card{background:#fff;border:1px solid #e6e9ee;border-radius:10px;padding:12px}
+.card .n{font-size:20px;font-weight:650}
+.card .l{color:#667085;font-size:11px;margin-top:2px}
+.controls{position:sticky;top:0;background:#f6f7f9;padding:8px 0;z-index:5}
+.toggle{display:flex;background:#eceef2;border-radius:10px;padding:3px;margin-bottom:8px}
+.toggle button{flex:1;border:0;background:transparent;padding:10px;border-radius:8px;font-size:14px;font-weight:600;color:#48505c;cursor:pointer}
+.toggle button.active{background:#fff;color:#1c2430;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.row2{display:flex;gap:8px;align-items:center}
+.search{flex:1;padding:11px 12px;border:1px solid #d7dce3;border-radius:10px;font-size:15px;background:#fff}
+.search:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.sortbtn{padding:11px 12px;border:1px solid #d7dce3;border-radius:10px;background:#fff;font-size:13px;color:#48505c;white-space:nowrap;cursor:pointer}
+.hint{color:#98a2b3;font-size:12px;margin:8px 2px}
+.item{background:#fff;border:1px solid #e6e9ee;border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.item .h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.nm{font-weight:650}
+.nm a{color:#1c2430;text-decoration:none}
+.badge{background:#eef2ff;color:#3730a3;font-weight:650;border-radius:8px;padding:3px 9px;font-size:12px;white-space:nowrap}
+.svc{color:#98a2b3;font-weight:400;font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.chip{background:#f1f3f7;color:#3a4250;border-radius:999px;padding:4px 11px;font-size:13px;border:1px solid #e6e9ee}
+.chip a{color:#3a4250;text-decoration:none}
+.empty{text-align:center;color:#98a2b3;padding:40px}
+</style></head><body>
+<div class="wrap">
+<div class="top"><h1>Services Team Roster</h1><a class="logout" href="/roster/logout">Log out</a></div>
+<p class="sub" id="sub"></p>
+<div class="cards" id="cards"></div>
+<div class="controls">
+<div class="toggle" id="toggle">
+<button data-view="people" class="active">By Person</button>
+<button data-view="teams">By Team</button>
+</div>
+<div class="row2">
+<input class="search" id="search" type="text" placeholder="Search people or teams…" autocomplete="off">
+<button class="sortbtn" id="sortbtn"></button>
+</div>
+</div>
+<div class="hint" id="hint"></div>
+<div id="list"></div>
+</div>
+<script>
+const DATA = __DATA__;
+let view="people", query="", sortByCount=true;
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function cards(){
+  const ppl=DATA.people.length, tms=DATA.teams.length;
+  const asg=DATA.people.reduce((s,p)=>s+p.teams.length,0);
+  const avg=ppl?(asg/ppl).toFixed(1):"0";
+  const c=[["People",ppl],["Teams",tms],["Avg teams",avg]];
+  document.getElementById("cards").innerHTML=c.map(x=>`<div class="card"><div class="n">${esc(x[1])}</div><div class="l">${esc(x[0])}</div></div>`).join("");
+  const d=new Date((DATA.generated_at||0)*1000);
+  document.getElementById("sub").textContent="Everyone on a team, and the teams they serve on · updated "+d.toLocaleString();
+}
+function renderPeople(){
+  const q=query.toLowerCase();
+  let rows=DATA.people.filter(p=>!q||p.name.toLowerCase().includes(q)||p.teams.some(t=>t.toLowerCase().includes(q)));
+  rows=rows.slice().sort((a,b)=> sortByCount ? (b.teams.length-a.teams.length)|| (a.last||a.name).localeCompare(b.last||b.name) : (a.last||a.name).localeCompare(b.last||b.name));
+  document.getElementById("hint").textContent=rows.length+" of "+DATA.people.length+" people";
+  document.getElementById("list").innerHTML = rows.length ? rows.map(p=>{
+    const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
+    const chips=p.teams.map(t=>`<span class="chip">${esc(t)}</span>`).join("");
+    return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></div><div class="chips">${chips}</div></div>`;
+  }).join("") : '<div class="empty">No matches.</div>';
+}
+function renderTeams(){
+  const q=query.toLowerCase();
+  let rows=DATA.teams.map(t=>({name:t.name,instances:t.instances,members:t.members.filter(m=>!q||m.name.toLowerCase().includes(q)||t.name.toLowerCase().includes(q))}));
+  if(q) rows=rows.filter(t=>t.name.toLowerCase().includes(q)||t.members.length);
+  rows=rows.slice().sort((a,b)=> sortByCount ? (b.members.length-a.members.length)||a.name.localeCompare(b.name) : a.name.localeCompare(b.name));
+  document.getElementById("hint").textContent=rows.length+" of "+DATA.teams.length+" teams";
+  document.getElementById("list").innerHTML = rows.length ? rows.map(t=>{
+    const svc=t.instances>1?` <span class="svc">· ${t.instances} service types</span>`:"";
+    const chips=t.members.map(m=>m.url?`<span class="chip"><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a></span>`:`<span class="chip">${esc(m.name)}</span>`).join("");
+    return `<div class="item"><div class="h"><span class="nm">${esc(t.name)}${svc}</span><span class="badge">${t.members.length}</span></div><div class="chips">${chips||'<span class="svc">No one assigned</span>'}</div></div>`;
+  }).join("") : '<div class="empty">No matches.</div>';
+}
+function render(){ view==="people"?renderPeople():renderTeams(); document.getElementById("sortbtn").textContent = sortByCount?"Sort: most teams":"Sort: A–Z"; }
+document.getElementById("toggle").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.view;[...document.querySelectorAll("#toggle button")].forEach(x=>x.classList.toggle("active",x.dataset.view===view));render();});
+document.getElementById("search").addEventListener("input",e=>{query=e.target.value.trim();render();});
+document.getElementById("sortbtn").addEventListener("click",()=>{sortByCount=!sortByCount;render();});
+cards();render();
+</script></body></html>"""
+
+
+@mcp.custom_route("/roster", methods=["GET"], include_in_schema=False)
+async def roster_page(request: Request) -> Response:
+    if not _roster_pin():
+        return HTMLResponse(
+            _roster_message_html(
+                "Roster not enabled",
+                "Set the ROSTER_PIN environment variable on the server to enable this page.",
+            ),
+            status_code=503,
+        )
+    if not _valid_roster_cookie(request.cookies.get(ROSTER_COOKIE)):
+        return HTMLResponse(_roster_login_html(error=False))
+    try:
+        payload = await _build_roster_payload()
+    except Exception as exc:  # noqa: BLE001 - surface a friendly page
+        LOGGER.exception("Failed to build roster page")
+        return HTMLResponse(
+            _roster_message_html("Couldn't load the roster", str(exc)),
+            status_code=502,
+        )
+    html = _ROSTER_PAGE_HTML.replace("__DATA__", json.dumps(payload))
+    return HTMLResponse(html)
+
+
+@mcp.custom_route("/roster/login", methods=["POST"], include_in_schema=False)
+async def roster_login(request: Request) -> Response:
+    pin = _roster_pin()
+    if not pin:
+        return HTMLResponse(
+            _roster_message_html(
+                "Roster not enabled",
+                "Set the ROSTER_PIN environment variable on the server to enable this page.",
+            ),
+            status_code=503,
+        )
+    # Parse the urlencoded body directly to avoid a python-multipart dependency.
+    body = (await request.body()).decode("utf-8", "ignore")
+    submitted = (parse_qs(body).get("pin", [""])[0]).strip()
+    if submitted and secrets.compare_digest(submitted, pin):
+        response = RedirectResponse("/roster", status_code=303)
+        response.set_cookie(
+            ROSTER_COOKIE,
+            _make_roster_cookie(),
+            max_age=ROSTER_COOKIE_TTL,
+            httponly=True,
+            secure=_request_is_https(request),
+            samesite="lax",
+            path="/roster",
+        )
+        return response
+    return HTMLResponse(_roster_login_html(error=True), status_code=401)
+
+
+@mcp.custom_route("/roster/logout", methods=["GET"], include_in_schema=False)
+async def roster_logout(request: Request) -> Response:
+    response = RedirectResponse("/roster", status_code=303)
+    response.delete_cookie(ROSTER_COOKIE, path="/roster")
     return response
 
 
