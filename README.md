@@ -114,14 +114,28 @@ If `MCP_BEARER_TOKEN` is set, include `Authorization: Bearer dev-token`.
 
 A PIN-protected, mobile-friendly roster is served at `/roster` when `ROSTER_PIN`
 is set. It lists everyone on a Planning Center **Services** team and the teams
-they serve on, with a By-Person / By-Team toggle, search, and sort. Data is
-fetched live from Planning Center on each page load, server-side — credentials
-never reach the browser.
+they serve on. Views and features:
+
+- **By Person** — each person, the teams they're on, and how many times they
+  were scheduled to serve (non-declined) in the last 60 days.
+- **By Team** — each team and its members, with per-member 60-day serve counts.
+- **Partners · no team** — people whose People membership is "Partner" who are
+  not on any Services team.
+- **Team multi-select** — show/hide specific teams in the Person and Team views.
+- **Burnout / Inactivity cards** — the top 5 people serving the most and the
+  bottom 5 serving the least over the last 60 days (partners with no team are
+  included in the inactivity pool).
+
+Data is fetched live from Planning Center server-side — credentials never reach
+the browser — and cached briefly (see `ROSTER_CACHE_TTL`) because the 60-day
+scheduling stats require many API calls.
 
 ```env
 ROSTER_PIN=1234
 # Optional: keep logins valid across redeploys by pinning the cookie secret.
 # ROSTER_COOKIE_SECRET=<long-random-string>
+# Optional: seconds to cache the roster + scheduling data (default 600).
+# ROSTER_CACHE_TTL=600
 ```
 
 Then open `https://<your-app>.up.railway.app/roster` on a phone, enter the PIN,

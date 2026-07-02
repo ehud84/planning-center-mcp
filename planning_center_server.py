@@ -17,6 +17,7 @@ import logging
 import os
 import secrets
 import time
+from datetime import datetime, timezone
 from typing import Annotated, Any, Literal, cast
 from urllib.parse import parse_qs, urlencode
 
@@ -1035,12 +1036,20 @@ def _request_is_https(request: Request) -> bool:
     return proto == "https" or request.url.scheme == "https"
 
 
-async def _build_roster_payload() -> dict[str, Any]:
-    """Fetch every Services team with its people and build the roster model.
+ROSTER_WINDOW_DAYS = 60
 
-    Teams are replicated per service type in Planning Center (e.g. many separate
-    "Band" records), so we collapse them by trimmed name and union the members.
-    """
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+async def _fetch_teams() -> tuple[list[JsonObject], dict[str, JsonObject]]:
+    """Return (teams, people_by_id) from the Services teams endpoint."""
     teams_raw: list[JsonObject] = []
     included: dict[str, JsonObject] = {}
     offset = 0
@@ -1060,6 +1069,124 @@ async def _build_roster_payload() -> dict[str, Any]:
         offset += len(data)
         if not data or offset >= total:
             break
+    return teams_raw, included
+
+
+async def _fetch_partners() -> list[JsonObject]:
+    """Return active people whose membership is 'Partner'."""
+    partners: list[JsonObject] = []
+    offset = 0
+    for _ in range(50):
+        page = await _api_request(
+            "people",
+            "people",
+            params={
+                "where[membership]": "Partner",
+                "where[status]": "active",
+                "per_page": 100,
+                "offset": offset,
+            },
+        )
+        data = [p for p in page.get("data", []) if isinstance(p, dict)]
+        for record in data:
+            attrs = _attributes(record)
+            pid = str(record.get("id"))
+            name = attrs.get("name") or " ".join(
+                part for part in (attrs.get("first_name"), attrs.get("last_name")) if part
+            ) or f"Person {pid}"
+            partners.append(
+                {
+                    "id": pid,
+                    "name": name,
+                    "last": attrs.get("last_name") or "",
+                    "url": f"https://people.planningcenteronline.com/people/AC{pid}",
+                }
+            )
+        meta = page.get("meta", {}) if isinstance(page.get("meta"), dict) else {}
+        offset += len(data)
+        if not data or offset >= meta.get("total_count", offset):
+            break
+    return partners
+
+
+async def _fetch_serve_counts(days: int = ROSTER_WINDOW_DAYS) -> dict[str, int]:
+    """Count scheduled (non-declined) serving slots per person over the window.
+
+    Walks every active service type's recent plans and tallies each person's
+    non-declined plan-people assignments across all teams.
+    """
+    cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
+    counts: dict[str, int] = {}
+
+    st_page = await _api_request("services", "service_types", params={"per_page": 100})
+    service_type_ids = [
+        str(s.get("id")) for s in st_page.get("data", []) if isinstance(s, dict) and s.get("id") is not None
+    ]
+
+    for stid in service_type_ids:
+        plan_ids: list[str] = []
+        offset = 0
+        done = False
+        for _ in range(30):
+            page = await _api_request(
+                "services",
+                f"service_types/{stid}/plans",
+                params={"filter": "past", "order": "-sort_date", "per_page": 100, "offset": offset},
+            )
+            data = [p for p in page.get("data", []) if isinstance(p, dict)]
+            if not data:
+                break
+            for plan in data:
+                sort_dt = _parse_iso(_attributes(plan).get("sort_date"))
+                if sort_dt is not None and sort_dt.timestamp() >= cutoff:
+                    plan_ids.append(str(plan.get("id")))
+                else:
+                    done = True
+                    break
+            if done:
+                break
+            offset += len(data)
+            meta = page.get("meta", {}) if isinstance(page.get("meta"), dict) else {}
+            if offset >= meta.get("total_count", offset):
+                break
+
+        for plan_id in plan_ids:
+            p_offset = 0
+            for _ in range(30):
+                pp = await _api_request(
+                    "services",
+                    f"service_types/{stid}/plans/{plan_id}/team_members",
+                    params={"filter": "not_declined", "per_page": 100, "offset": p_offset},
+                )
+                rows = [r for r in pp.get("data", []) if isinstance(r, dict)]
+                if not rows:
+                    break
+                for row in rows:
+                    rel = row.get("relationships", {}) if isinstance(row.get("relationships"), dict) else {}
+                    person_rel = rel.get("person", {}) if isinstance(rel.get("person"), dict) else {}
+                    person_ref = person_rel.get("data") if isinstance(person_rel.get("data"), dict) else None
+                    if person_ref and person_ref.get("id") is not None:
+                        person_id = str(person_ref["id"])
+                        counts[person_id] = counts.get(person_id, 0) + 1
+                p_offset += len(rows)
+                meta = pp.get("meta", {}) if isinstance(pp.get("meta"), dict) else {}
+                if p_offset >= meta.get("total_count", p_offset):
+                    break
+
+    return counts
+
+
+async def _build_roster_payload() -> dict[str, Any]:
+    """Build the full roster model: teams, people, partners, and serve stats.
+
+    Teams are replicated per service type in Planning Center (e.g. many separate
+    "Band" records), so we collapse them by trimmed name and union the members.
+    Each person is annotated with how many non-declined serving slots they filled
+    in the last ROSTER_WINDOW_DAYS across all teams.
+    """
+    teams_raw, included = await _fetch_teams()
+    serve_counts = await _fetch_serve_counts(ROSTER_WINDOW_DAYS)
+    partners = await _fetch_partners()
 
     people: dict[str, JsonObject] = {}
     for pid, record in included.items():
@@ -1096,10 +1223,18 @@ async def _build_roster_payload() -> dict[str, Any]:
             entry["ids"].add(pid)
             people[pid]["teams"].add(team_name)
 
+    def serves(pid: str) -> int:
+        return serve_counts.get(pid, 0)
+
     teams_out = []
     for entry in by_name.values():
         members = [
-            {"name": people[pid]["name"], "last": people[pid]["last"], "url": people[pid]["url"]}
+            {
+                "name": people[pid]["name"],
+                "last": people[pid]["last"],
+                "url": people[pid]["url"],
+                "serves": serves(pid),
+            }
             for pid in entry["ids"]
         ]
         members.sort(key=lambda m: ((m["last"] or m["name"]).lower(), m["name"].lower()))
@@ -1116,11 +1251,68 @@ async def _build_roster_payload() -> dict[str, Any]:
                 "last": person["last"],
                 "url": person["url"],
                 "teams": sorted(person["teams"], key=str.lower),
+                "serves": serves(person["id"]),
             }
         )
     people_out.sort(key=lambda p: ((p["last"] or p["name"]).lower(), p["name"].lower()))
 
-    return {"people": people_out, "teams": teams_out, "generated_at": int(time.time())}
+    team_member_ids = {pid for entry in by_name.values() for pid in entry["ids"]}
+    partners_no_team = []
+    for partner in partners:
+        if partner["id"] in team_member_ids:
+            continue
+        partners_no_team.append(
+            {
+                "name": partner["name"],
+                "last": partner["last"],
+                "url": partner["url"],
+                "serves": serves(partner["id"]),
+            }
+        )
+    partners_no_team.sort(key=lambda p: ((p["last"] or p["name"]).lower(), p["name"].lower()))
+
+    # Card pool: people on a team + partners with no team (per the chosen scope).
+    card_pool = [
+        {"name": p["name"], "url": p["url"], "serves": p["serves"], "teams": len(p["teams"])}
+        for p in people_out
+    ] + [
+        {"name": p["name"], "url": p["url"], "serves": p["serves"], "teams": 0}
+        for p in partners_no_team
+    ]
+    burnout = sorted(card_pool, key=lambda x: (-x["serves"], x["name"].lower()))[:5]
+    inactivity = sorted(card_pool, key=lambda x: (x["serves"], -x["teams"], x["name"].lower()))[:5]
+
+    return {
+        "people": people_out,
+        "teams": teams_out,
+        "partners_no_team": partners_no_team,
+        "burnout": burnout,
+        "inactivity": inactivity,
+        "window_days": ROSTER_WINDOW_DAYS,
+        "generated_at": int(time.time()),
+    }
+
+
+_ROSTER_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+def _roster_cache_ttl() -> int:
+    try:
+        return max(0, int(os.getenv("ROSTER_CACHE_TTL", "600")))
+    except ValueError:
+        return 600
+
+
+async def _get_roster_payload() -> dict[str, Any]:
+    """Return a cached roster payload, rebuilding when the cache is stale."""
+    now = time.time()
+    cached = _ROSTER_CACHE.get("data")
+    if cached is not None and (now - _ROSTER_CACHE.get("ts", 0.0)) < _roster_cache_ttl():
+        return cached
+    payload = await _build_roster_payload()
+    _ROSTER_CACHE["ts"] = now
+    _ROSTER_CACHE["data"] = payload
+    return payload
 
 
 _ROSTER_LOGIN_HTML = """<!DOCTYPE html>
@@ -1178,94 +1370,177 @@ _ROSTER_PAGE_HTML = """<!DOCTYPE html>
 :root{color-scheme:light}
 *{box-sizing:border-box}
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f6f7f9;color:#1c2430;font-size:15px}
-.wrap{max-width:820px;margin:0 auto;padding:16px 14px 60px}
+.wrap{max-width:860px;margin:0 auto;padding:16px 14px 60px}
 .top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:2px}
 h1{font-size:19px;margin:0}
 .logout{font-size:12px;color:#667085;text-decoration:none}
 .sub{color:#667085;font-size:12px;margin:0 0 14px}
-.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
 .card{background:#fff;border:1px solid #e6e9ee;border-radius:10px;padding:12px}
 .card .n{font-size:20px;font-weight:650}
 .card .l{color:#667085;font-size:11px;margin-top:2px}
-.controls{position:sticky;top:0;background:#f6f7f9;padding:8px 0;z-index:5}
+.risk{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.panel{background:#fff;border:1px solid #e6e9ee;border-radius:12px;padding:12px 12px 6px}
+.panel.burn{border-color:#fed7aa;background:#fff8f1}
+.panel.inact{border-color:#c7d7fe;background:#f5f8ff}
+.pt{font-size:12px;font-weight:700;margin-bottom:8px}
+.pr{display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid rgba(0,0,0,.05)}
+.pr:first-of-type{border-top:0}
+.pi{width:18px;height:18px;flex:none;border-radius:50%;background:#eceef2;color:#48505c;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.pn{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pn a{color:#1c2430;text-decoration:none}
+.pv{font-size:12px;font-weight:700;color:#48505c;white-space:nowrap}
+.controls{position:sticky;top:0;background:#f6f7f9;padding:8px 0;z-index:10}
 .toggle{display:flex;background:#eceef2;border-radius:10px;padding:3px;margin-bottom:8px}
-.toggle button{flex:1;border:0;background:transparent;padding:10px;border-radius:8px;font-size:14px;font-weight:600;color:#48505c;cursor:pointer}
+.toggle button{flex:1;border:0;background:transparent;padding:10px 6px;border-radius:8px;font-size:13px;font-weight:600;color:#48505c;cursor:pointer;white-space:nowrap}
 .toggle button.active{background:#fff;color:#1c2430;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.row2{display:flex;gap:8px;align-items:center}
-.search{flex:1;padding:11px 12px;border:1px solid #d7dce3;border-radius:10px;font-size:15px;background:#fff}
+.row2{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.search{flex:1;min-width:150px;padding:11px 12px;border:1px solid #d7dce3;border-radius:10px;font-size:15px;background:#fff}
 .search:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
-.sortbtn{padding:11px 12px;border:1px solid #d7dce3;border-radius:10px;background:#fff;font-size:13px;color:#48505c;white-space:nowrap;cursor:pointer}
+.dd{position:relative}
+.ddbtn{padding:11px 12px;border:1px solid #d7dce3;border-radius:10px;background:#fff;font-size:13px;color:#48505c;white-space:nowrap;cursor:pointer}
+.ddpanel{position:absolute;right:0;top:46px;width:250px;max-height:320px;overflow:auto;background:#fff;border:1px solid #d7dce3;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.14);padding:8px;z-index:30}
+.ddhead{display:flex;gap:6px;margin-bottom:6px}
+.ddhead button{flex:1;border:1px solid #d7dce3;background:#fafbfc;border-radius:8px;padding:7px;font-size:12px;color:#48505c;cursor:pointer}
+.ddrow{display:flex;align-items:center;gap:8px;padding:7px 6px;border-radius:8px;font-size:13px;cursor:pointer}
+.ddrow:hover{background:#f6f7f9}
+.ddrow input{width:16px;height:16px}
+.ddrow span:nth-child(2){flex:1}
+.ddn{color:#98a2b3;font-size:12px}
+.sortsel{padding:11px 10px;border:1px solid #d7dce3;border-radius:10px;background:#fff;font-size:13px;color:#48505c}
 .hint{color:#98a2b3;font-size:12px;margin:8px 2px}
 .item{background:#fff;border:1px solid #e6e9ee;border-radius:12px;padding:12px 14px;margin-bottom:8px}
 .item .h{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .nm{font-weight:650}
 .nm a{color:#1c2430;text-decoration:none}
+.badges{display:flex;gap:6px;flex:none}
 .badge{background:#eef2ff;color:#3730a3;font-weight:650;border-radius:8px;padding:3px 9px;font-size:12px;white-space:nowrap}
+.badge.b2{background:#f1f5f0;color:#3f6212}
 .svc{color:#98a2b3;font-weight:400;font-size:12px}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
 .chip{background:#f1f3f7;color:#3a4250;border-radius:999px;padding:4px 11px;font-size:13px;border:1px solid #e6e9ee}
+.chip.off{opacity:.4}
 .chip a{color:#3a4250;text-decoration:none}
+.chip .cx{color:#98a2b3;margin-left:6px;font-size:11px}
 .empty{text-align:center;color:#98a2b3;padding:40px}
+@media (max-width:640px){.cards{grid-template-columns:repeat(2,1fr)}.risk{grid-template-columns:1fr}}
 </style></head><body>
 <div class="wrap">
-<div class="top"><h1>Services Team Roster</h1><a class="logout" href="/roster/logout">Log out</a></div>
-<p class="sub" id="sub"></p>
+<div class="top"><h1>Services Team Roster</h1><a class="logout" id="logout" href="/roster/logout">Log out</a></div>
+<p class="sub" id="sub">Loading…</p>
 <div class="cards" id="cards"></div>
+<div class="risk" id="risk"></div>
 <div class="controls">
 <div class="toggle" id="toggle">
-<button data-view="people" class="active">By Person</button>
-<button data-view="teams">By Team</button>
+<button type="button" data-view="people" class="active">By Person</button>
+<button type="button" data-view="teams">By Team</button>
+<button type="button" data-view="partners">Partners · no team</button>
 </div>
 <div class="row2">
-<input class="search" id="search" type="text" placeholder="Search people or teams…" autocomplete="off">
-<button class="sortbtn" id="sortbtn"></button>
+<input class="search" id="search" type="text" placeholder="Search…" autocomplete="off">
+<div class="dd" id="teamdd">
+<button type="button" class="ddbtn" id="ddbtn">Teams</button>
+<div class="ddpanel" id="ddpanel" hidden>
+<div class="ddhead"><button type="button" id="selall">Select all</button><button type="button" id="selnone">Clear</button></div>
+<div id="ddlist"></div>
+</div>
+</div>
+<select class="sortsel" id="sortsel">
+<option value="serves">Sort: Serves (60d)</option>
+<option value="count">Sort: Count</option>
+<option value="name">Sort: A–Z</option>
+</select>
 </div>
 </div>
 <div class="hint" id="hint"></div>
 <div id="list"></div>
+<div id="loading" class="empty"></div>
 </div>
 <script>
-const DATA = __DATA__;
-let view="people", query="", sortByCount=true;
-function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-function cards(){
-  const ppl=DATA.people.length, tms=DATA.teams.length;
-  const asg=DATA.people.reduce((s,p)=>s+p.teams.length,0);
-  const avg=ppl?(asg/ppl).toFixed(1):"0";
-  const c=[["People",ppl],["Teams",tms],["Avg teams",avg]];
-  document.getElementById("cards").innerHTML=c.map(x=>`<div class="card"><div class="n">${esc(x[1])}</div><div class="l">${esc(x[0])}</div></div>`).join("");
-  const d=new Date((DATA.generated_at||0)*1000);
-  document.getElementById("sub").textContent="Everyone on a team, and the teams they serve on · updated "+d.toLocaleString();
+function initRoster(DATA){
+  const $=id=>document.getElementById(id);
+  const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const win=DATA.window_days||60;
+  let view="people", query="", sortMode="serves";
+  const selected=new Set(DATA.teams.map(t=>t.name));
+  const byName=(a,b)=>String(a.last||a.name).toLowerCase().localeCompare(String(b.last||b.name).toLowerCase());
+
+  function summary(){
+    const ppl=DATA.people.length, tms=DATA.teams.length;
+    const asg=DATA.people.reduce((s,p)=>s+p.teams.length,0);
+    const avg=ppl?(asg/ppl).toFixed(1):"0";
+    const pnt=(DATA.partners_no_team||[]).length;
+    const c=[["People on teams",ppl],["Teams",tms],["Avg teams",avg],["Partners · no team",pnt]];
+    $("cards").innerHTML=c.map(x=>`<div class="card"><div class="n">${esc(x[1])}</div><div class="l">${esc(x[0])}</div></div>`).join("");
+    const panel=(title,cls,rows)=>`<div class="panel ${cls}"><div class="pt">${title}</div>`+
+      ((rows&&rows.length)?rows.map((r,i)=>`<div class="pr"><span class="pi">${i+1}</span><span class="pn">${r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`:esc(r.name)}</span><span class="pv">${r.serves}×</span></div>`).join(""):`<div class="pr"><span class="pn" style="color:#98a2b3">No data</span></div>`)+`</div>`;
+    $("risk").innerHTML=panel(`🔥 Burnout risk · most serves (${win}d)`,"burn",DATA.burnout)+panel(`💤 Inactivity risk · fewest serves (${win}d)`,"inact",DATA.inactivity);
+    const d=new Date((DATA.generated_at||0)*1000);
+    $("sub").textContent=`On-team roster with serving counts from the last ${win} days · updated `+d.toLocaleString();
+  }
+
+  function renderPeople(){
+    const q=query.toLowerCase();
+    let rows=DATA.people.filter(p=>p.teams.some(t=>selected.has(t)) && (!q||p.name.toLowerCase().includes(q)||p.teams.some(t=>t.toLowerCase().includes(q))));
+    rows.sort(sortMode==="name"?byName:sortMode==="count"?((a,b)=>(b.teams.length-a.teams.length)||byName(a,b)):((a,b)=>(b.serves-a.serves)||byName(a,b)));
+    $("hint").textContent=rows.length+" of "+DATA.people.length+" people";
+    $("list").innerHTML=rows.length?rows.map(p=>{
+      const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
+      const chips=p.teams.map(t=>`<span class="chip${selected.has(t)?"":" off"}">${esc(t)}</span>`).join("");
+      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badges"><span class="badge b2" title="Serves in last ${win} days">${p.serves}× ${win}d</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></span></div><div class="chips">${chips}</div></div>`;
+    }).join(""):'<div class="empty">No matches.</div>';
+  }
+
+  function renderTeams(){
+    const q=query.toLowerCase();
+    let rows=DATA.teams.filter(t=>selected.has(t.name)).map(t=>({name:t.name,instances:t.instances,members:t.members.filter(m=>!q||m.name.toLowerCase().includes(q)||t.name.toLowerCase().includes(q))}));
+    if(q) rows=rows.filter(t=>t.name.toLowerCase().includes(q)||t.members.length);
+    rows.sort(sortMode==="name"?((a,b)=>a.name.localeCompare(b.name)):((a,b)=>(b.members.length-a.members.length)||a.name.localeCompare(b.name)));
+    $("hint").textContent=rows.length+" of "+DATA.teams.length+" teams";
+    $("list").innerHTML=rows.length?rows.map(t=>{
+      const svc=t.instances>1?` <span class="svc">· ${t.instances} service types</span>`:"";
+      const chips=t.members.map(m=>{const nm=m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a>`:esc(m.name);return `<span class="chip">${nm}<span class="cx">${m.serves}×</span></span>`;}).join("");
+      return `<div class="item"><div class="h"><span class="nm">${esc(t.name)}${svc}</span><span class="badge">${t.members.length}</span></div><div class="chips">${chips||'<span class="svc">No one assigned</span>'}</div></div>`;
+    }).join(""):'<div class="empty">No matches.</div>';
+  }
+
+  function renderPartners(){
+    const q=query.toLowerCase();
+    let rows=(DATA.partners_no_team||[]).filter(p=>!q||p.name.toLowerCase().includes(q));
+    rows.sort(sortMode==="name"?byName:((a,b)=>(b.serves-a.serves)||byName(a,b)));
+    $("hint").textContent=rows.length+" partners with no team assignment";
+    $("list").innerHTML=rows.length?rows.map(p=>{
+      const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
+      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badge b2">${p.serves}× ${win}d</span></div></div>`;
+    }).join(""):'<div class="empty">Every Partner is on a team. 🎉</div>';
+  }
+
+  function render(){
+    $("teamdd").style.display = view==="partners" ? "none" : "";
+    if(view==="people")renderPeople(); else if(view==="teams")renderTeams(); else renderPartners();
+  }
+
+  function updateDDbtn(){ $("ddbtn").textContent = selected.size===DATA.teams.length ? "Teams: all" : `Teams: ${selected.size}/${DATA.teams.length}`; }
+  function buildDD(){
+    $("ddlist").innerHTML=DATA.teams.map(t=>`<label class="ddrow"><input type="checkbox" value="${esc(t.name)}" ${selected.has(t.name)?"checked":""}><span>${esc(t.name)}</span><span class="ddn">${t.members.length}</span></label>`).join("");
+    $("ddlist").querySelectorAll("input").forEach(cb=>cb.addEventListener("change",()=>{cb.checked?selected.add(cb.value):selected.delete(cb.value);updateDDbtn();render();}));
+    updateDDbtn();
+  }
+
+  $("ddbtn").addEventListener("click",()=>{$("ddpanel").hidden=!$("ddpanel").hidden;});
+  document.addEventListener("click",e=>{ if(!$("teamdd").contains(e.target)) $("ddpanel").hidden=true; });
+  $("selall").addEventListener("click",()=>{DATA.teams.forEach(t=>selected.add(t.name));buildDD();render();});
+  $("selnone").addEventListener("click",()=>{selected.clear();buildDD();render();});
+  $("toggle").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.view;[...$("toggle").children].forEach(x=>x.classList.toggle("active",x.dataset.view===view));render();});
+  $("search").addEventListener("input",e=>{query=e.target.value.trim();render();});
+  $("sortsel").addEventListener("change",e=>{sortMode=e.target.value;render();});
+
+  const ld=$("loading"); if(ld) ld.style.display="none";
+  buildDD(); summary(); render();
 }
-function renderPeople(){
-  const q=query.toLowerCase();
-  let rows=DATA.people.filter(p=>!q||p.name.toLowerCase().includes(q)||p.teams.some(t=>t.toLowerCase().includes(q)));
-  rows=rows.slice().sort((a,b)=> sortByCount ? (b.teams.length-a.teams.length)|| (a.last||a.name).localeCompare(b.last||b.name) : (a.last||a.name).localeCompare(b.last||b.name));
-  document.getElementById("hint").textContent=rows.length+" of "+DATA.people.length+" people";
-  document.getElementById("list").innerHTML = rows.length ? rows.map(p=>{
-    const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
-    const chips=p.teams.map(t=>`<span class="chip">${esc(t)}</span>`).join("");
-    return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></div><div class="chips">${chips}</div></div>`;
-  }).join("") : '<div class="empty">No matches.</div>';
-}
-function renderTeams(){
-  const q=query.toLowerCase();
-  let rows=DATA.teams.map(t=>({name:t.name,instances:t.instances,members:t.members.filter(m=>!q||m.name.toLowerCase().includes(q)||t.name.toLowerCase().includes(q))}));
-  if(q) rows=rows.filter(t=>t.name.toLowerCase().includes(q)||t.members.length);
-  rows=rows.slice().sort((a,b)=> sortByCount ? (b.members.length-a.members.length)||a.name.localeCompare(b.name) : a.name.localeCompare(b.name));
-  document.getElementById("hint").textContent=rows.length+" of "+DATA.teams.length+" teams";
-  document.getElementById("list").innerHTML = rows.length ? rows.map(t=>{
-    const svc=t.instances>1?` <span class="svc">· ${t.instances} service types</span>`:"";
-    const chips=t.members.map(m=>m.url?`<span class="chip"><a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a></span>`:`<span class="chip">${esc(m.name)}</span>`).join("");
-    return `<div class="item"><div class="h"><span class="nm">${esc(t.name)}${svc}</span><span class="badge">${t.members.length}</span></div><div class="chips">${chips||'<span class="svc">No one assigned</span>'}</div></div>`;
-  }).join("") : '<div class="empty">No matches.</div>';
-}
-function render(){ view==="people"?renderPeople():renderTeams(); document.getElementById("sortbtn").textContent = sortByCount?"Sort: most teams":"Sort: A–Z"; }
-document.getElementById("toggle").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.view;[...document.querySelectorAll("#toggle button")].forEach(x=>x.classList.toggle("active",x.dataset.view===view));render();});
-document.getElementById("search").addEventListener("input",e=>{query=e.target.value.trim();render();});
-document.getElementById("sortbtn").addEventListener("click",()=>{sortByCount=!sortByCount;render();});
-cards();render();
-</script></body></html>"""
+initRoster(__DATA__);
+</script></body></html>
+"""
 
 
 @mcp.custom_route("/roster", methods=["GET"], include_in_schema=False)
@@ -1281,14 +1556,15 @@ async def roster_page(request: Request) -> Response:
     if not _valid_roster_cookie(request.cookies.get(ROSTER_COOKIE)):
         return HTMLResponse(_roster_login_html(error=False))
     try:
-        payload = await _build_roster_payload()
+        payload = await _get_roster_payload()
     except Exception as exc:  # noqa: BLE001 - surface a friendly page
         LOGGER.exception("Failed to build roster page")
         return HTMLResponse(
             _roster_message_html("Couldn't load the roster", str(exc)),
             status_code=502,
         )
-    html = _ROSTER_PAGE_HTML.replace("__DATA__", json.dumps(payload))
+    data_json = json.dumps(payload).replace("</", "<\\/")
+    html = _ROSTER_PAGE_HTML.replace("__DATA__", data_json)
     return HTMLResponse(html)
 
 
