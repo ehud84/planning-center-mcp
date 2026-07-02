@@ -1400,7 +1400,7 @@ h1{font-size:19px;margin:0}
 .pn a{color:#1c2430;text-decoration:none}
 .pv{font-size:12px;font-weight:700;color:#48505c;white-space:nowrap}
 .controls{position:sticky;top:0;background:#f6f7f9;padding:8px 0;z-index:10}
-.winbar{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.winbar{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
 .winlabel{font-size:12px;color:#667085;font-weight:600}
 .seg{display:inline-flex;background:#eceef2;border-radius:9px;padding:3px}
 .seg button{border:0;background:transparent;padding:7px 14px;border-radius:7px;font-size:13px;font-weight:600;color:#48505c;cursor:pointer}
@@ -1422,6 +1422,8 @@ h1{font-size:19px;margin:0}
 .ddrow span:nth-child(2){flex:1}
 .ddn{color:#98a2b3;font-size:12px}
 .sortsel{padding:11px 10px;border:1px solid #d7dce3;border-radius:10px;background:#fff;font-size:13px;color:#48505c}
+.minibtn{padding:11px 12px;border:1px solid #d7dce3;border-radius:10px;background:#fff;font-size:13px;color:#48505c;cursor:pointer;white-space:nowrap}
+.minibtn.active{background:#eef2ff;border-color:#c7d2fe;color:#3730a3;font-weight:600}
 .hint{color:#98a2b3;font-size:12px;margin:8px 2px}
 .item{background:#fff;border:1px solid #e6e9ee;border-radius:12px;padding:12px 14px;margin-bottom:8px}
 .item .h{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -1430,10 +1432,12 @@ h1{font-size:19px;margin:0}
 .badges{display:flex;gap:6px;flex:none}
 .badge{background:#eef2ff;color:#3730a3;font-weight:650;border-radius:8px;padding:3px 9px;font-size:12px;white-space:nowrap}
 .badge.b2{background:#f1f5f0;color:#3f6212}
+.badge.z{background:#fef2f2;color:#b42318}
 .svc{color:#98a2b3;font-weight:400;font-size:12px}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
 .chip{background:#f1f3f7;color:#3a4250;border-radius:999px;padding:4px 11px;font-size:13px;border:1px solid #e6e9ee}
 .chip.off{opacity:.4}
+.chip.none{background:#fff;color:#98a2b3;font-style:italic}
 .chip a{color:#3a4250;text-decoration:none}
 .chip .cx{color:#98a2b3;margin-left:6px;font-size:11px}
 .empty{text-align:center;color:#98a2b3;padding:40px}
@@ -1468,8 +1472,10 @@ h1{font-size:19px;margin:0}
 <select class="sortsel" id="sortsel">
 <option value="serves">Sort: Serves</option>
 <option value="count">Sort: Count</option>
-<option value="name">Sort: A–Z</option>
+<option value="name">Sort: Name</option>
 </select>
+<button type="button" class="minibtn" id="sortdir" title="Toggle ascending / descending">↓ Desc</button>
+<button type="button" class="minibtn" id="zerobtn" title="Show only people with no serves in the window">0 serves</button>
 </div>
 </div>
 <div class="hint" id="hint"></div>
@@ -1480,21 +1486,29 @@ h1{font-size:19px;margin:0}
 function initRoster(DATA){
   const $=id=>document.getElementById(id);
   const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  let view="people", query="", sortMode="serves", win=60;
+  let view="people", query="", sortMode="serves", sortDir="desc", win=60, zeroOnly=false;
   const selected=new Set(DATA.teams.map(t=>t.name));
   const byName=(a,b)=>String(a.last||a.name).toLowerCase().localeCompare(String(b.last||b.name).toLowerCase());
   const SV=o=>{const s=o&&o.serves; if(typeof s==="number")return s; return (s&&s["d"+win])||0;};
+  const dir=()=>sortDir==="asc"?1:-1;
+  // Main roster = partners on a team + partners with no team assignment.
+  const noTeamPeople=()=>(DATA.partners_no_team||[]).map(p=>({name:p.name,last:p.last,url:p.url,serves:p.serves,teams:[]}));
+
+  function cmpPeople(a,b){
+    let d=0;
+    if(sortMode==="name") d=byName(a,b);
+    else if(sortMode==="count") d=a.teams.length-b.teams.length;
+    else d=SV(a)-SV(b);
+    return dir()*d || byName(a,b);
+  }
 
   function riskPool(){
     return DATA.people.map(p=>({name:p.name,url:p.url,serves:SV(p),teams:p.teams.length}))
       .concat((DATA.partners_no_team||[]).map(p=>({name:p.name,url:p.url,serves:SV(p),teams:0})));
   }
   function summary(){
-    const ppl=DATA.people.length, tms=DATA.teams.length;
-    const asg=DATA.people.reduce((s,p)=>s+p.teams.length,0);
-    const avg=ppl?(asg/ppl).toFixed(1):"0";
-    const pnt=(DATA.partners_no_team||[]).length;
-    const c=[["Partners on teams",ppl],["Teams",tms],["Avg teams",avg],["Partners · no team",pnt]];
+    const total=DATA.people.length+(DATA.partners_no_team||[]).length;
+    const c=[["Partners",total],["Teams",DATA.teams.length],["On a team",DATA.people.length],["No team",(DATA.partners_no_team||[]).length]];
     $("cards").innerHTML=c.map(x=>`<div class="card"><div class="n">${esc(x[1])}</div><div class="l">${esc(x[0])}</div></div>`).join("");
     const pool=riskPool();
     const burnout=pool.slice().sort((a,b)=>(b.serves-a.serves)||a.name.localeCompare(b.name)).slice(0,5);
@@ -1507,23 +1521,30 @@ function initRoster(DATA){
   }
 
   function renderPeople(){
-    const q=query.toLowerCase();
-    let rows=DATA.people.filter(p=>p.teams.some(t=>selected.has(t)) && (!q||p.name.toLowerCase().includes(q)||p.teams.some(t=>t.toLowerCase().includes(q))));
-    rows.sort(sortMode==="name"?byName:sortMode==="count"?((a,b)=>(b.teams.length-a.teams.length)||byName(a,b)):((a,b)=>(SV(b)-SV(a))||byName(a,b)));
-    $("hint").textContent=rows.length+" of "+DATA.people.length+" partners";
+    const q=query.toLowerCase(), all=selected.size===DATA.teams.length;
+    let rows=DATA.people.concat(noTeamPeople()).filter(p=>{
+      const teamOK = p.teams.length ? p.teams.some(t=>selected.has(t)) : all;
+      if(!teamOK) return false;
+      if(zeroOnly && SV(p)!==0) return false;
+      if(q && !(p.name.toLowerCase().includes(q) || p.teams.some(t=>t.toLowerCase().includes(q)))) return false;
+      return true;
+    });
+    rows.sort(cmpPeople);
+    $("hint").textContent=rows.length+" of "+(DATA.people.length+(DATA.partners_no_team||[]).length)+" partners"+(zeroOnly?" · 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(p=>{
       const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
-      const chips=p.teams.map(t=>`<span class="chip${selected.has(t)?"":" off"}">${esc(t)}</span>`).join("");
-      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badges"><span class="badge b2" title="Serves in last ${win} days">${SV(p)}× ${win}d</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></span></div><div class="chips">${chips}</div></div>`;
+      const chips=p.teams.length?p.teams.map(t=>`<span class="chip${selected.has(t)?"":" off"}">${esc(t)}</span>`).join(""):'<span class="chip none">No team assignment</span>';
+      const sv=SV(p);
+      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badges"><span class="badge b2${sv===0?" z":""}" title="Serves in last ${win} days">${sv}× ${win}d</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></span></div><div class="chips">${chips}</div></div>`;
     }).join(""):'<div class="empty">No matches.</div>';
   }
 
   function renderTeams(){
     const q=query.toLowerCase();
-    let rows=DATA.teams.filter(t=>selected.has(t.name)).map(t=>({name:t.name,instances:t.instances,members:t.members.filter(m=>!q||m.name.toLowerCase().includes(q)||t.name.toLowerCase().includes(q))}));
-    if(q) rows=rows.filter(t=>t.name.toLowerCase().includes(q)||t.members.length);
-    rows.sort(sortMode==="name"?((a,b)=>a.name.localeCompare(b.name)):((a,b)=>(b.members.length-a.members.length)||a.name.localeCompare(b.name)));
-    $("hint").textContent=rows.length+" of "+DATA.teams.length+" teams";
+    let rows=DATA.teams.filter(t=>selected.has(t.name)).map(t=>({name:t.name,instances:t.instances,members:t.members.filter(m=>(!q||m.name.toLowerCase().includes(q)||t.name.toLowerCase().includes(q))&&(!zeroOnly||SV(m)===0))}));
+    if(q||zeroOnly) rows=rows.filter(t=>(q&&t.name.toLowerCase().includes(q))||t.members.length);
+    rows.sort((a,b)=>{ const d = sortMode==="name" ? a.name.localeCompare(b.name) : (a.members.length-b.members.length); return dir()*d || a.name.localeCompare(b.name); });
+    $("hint").textContent=rows.length+" of "+DATA.teams.length+" teams"+(zeroOnly?" · members with 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(t=>{
       const svc=t.instances>1?` <span class="svc">· ${t.instances} service types</span>`:"";
       const mem=t.members.slice().sort(sortMode==="serves"?((a,b)=>(SV(b)-SV(a))||byName(a,b)):byName);
@@ -1534,12 +1555,13 @@ function initRoster(DATA){
 
   function renderPartners(){
     const q=query.toLowerCase();
-    let rows=(DATA.partners_no_team||[]).filter(p=>!q||p.name.toLowerCase().includes(q));
-    rows.sort(sortMode==="name"?byName:((a,b)=>(SV(b)-SV(a))||byName(a,b)));
-    $("hint").textContent=rows.length+" partners with no team assignment";
+    let rows=(DATA.partners_no_team||[]).filter(p=>(!q||p.name.toLowerCase().includes(q))&&(!zeroOnly||SV(p)===0));
+    rows.sort(cmpPeople);
+    $("hint").textContent=rows.length+" partners with no team assignment"+(zeroOnly?" · 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(p=>{
       const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
-      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badge b2">${SV(p)}× ${win}d</span></div></div>`;
+      const sv=SV(p);
+      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badge b2${sv===0?" z":""}">${sv}× ${win}d</span></div></div>`;
     }).join(""):'<div class="empty">Every Partner is on a team. 🎉</div>';
   }
 
@@ -1562,10 +1584,13 @@ function initRoster(DATA){
   $("selnone").addEventListener("click",()=>{selected.clear();buildDD();render();});
   $("toggle").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.view;[...$("toggle").children].forEach(x=>x.classList.toggle("active",x.dataset.view===view));render();});
   $("search").addEventListener("input",e=>{query=e.target.value.trim();render();});
-  $("sortsel").addEventListener("change",e=>{sortMode=e.target.value;render();});
+  $("sortsel").addEventListener("change",e=>{sortMode=e.target.value;sortDir=(sortMode==="name")?"asc":"desc";updateDir();render();});
+  $("sortdir").addEventListener("click",()=>{sortDir=sortDir==="asc"?"desc":"asc";updateDir();render();});
+  function updateDir(){ $("sortdir").textContent = sortDir==="asc" ? "↑ Asc" : "↓ Desc"; }
+  $("zerobtn").addEventListener("click",()=>{zeroOnly=!zeroOnly;$("zerobtn").classList.toggle("active",zeroOnly);render();});
 
   const ld=$("loading"); if(ld) ld.style.display="none";
-  buildDD(); summary(); render();
+  updateDir(); buildDD(); summary(); render();
 }
 initRoster(__DATA__);
 </script></body></html>

@@ -119,8 +119,13 @@ which Services teams they serve on. Views and features:
 - **Serving window selector** — toggle the serving stats between the last 30, 60,
   or 90 days. Counts for all three windows are computed in one pass, so switching
   is instant and updates the serve column, sorting, and the risk cards.
-- **By Person** — each Partner, the teams they're on, and how many times they
-  were scheduled to serve (non-declined) in the selected window.
+- **By Person** — every Partner (including those with no team assignment), the
+  teams they're on, and how many times they were scheduled to serve
+  (non-declined) in the selected window.
+- **Sort & direction** — sort by serves, team count, or name, each ascending or
+  descending.
+- **"0 serves" filter** — show only people who haven't served at all within the
+  selected window (great for follow-up).
 - **By Team** — each team and its Partner members, with per-member serve counts.
   Teams with no Partner members are hidden.
 - **Partners · no team** — Partners who are not on any Services team.
