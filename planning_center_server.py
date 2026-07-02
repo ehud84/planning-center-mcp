@@ -1109,6 +1109,64 @@ async def _fetch_partners() -> list[JsonObject]:
     return partners
 
 
+def _lead_group_name() -> str:
+    return os.getenv("ROSTER_LEAD_GROUP", "Lead Partners").strip() or "Lead Partners"
+
+
+async def _find_group_id(name: str) -> str | None:
+    """Resolve a Groups group id by name (exact match preferred)."""
+    target = name.strip().lower()
+    try:
+        page = await _api_request("groups", "groups", params={"where[name]": name, "per_page": 100})
+        candidates = [g for g in page.get("data", []) if isinstance(g, dict)]
+        for group in candidates:
+            if (_attributes(group).get("name") or "").strip().lower() == target:
+                return str(group.get("id"))
+        if candidates:
+            return str(candidates[0].get("id"))
+    except Exception:  # noqa: BLE001 - fall back to listing all groups
+        pass
+    offset = 0
+    for _ in range(30):
+        page = await _api_request("groups", "groups", params={"per_page": 100, "offset": offset})
+        rows = [g for g in page.get("data", []) if isinstance(g, dict)]
+        for group in rows:
+            if (_attributes(group).get("name") or "").strip().lower() == target:
+                return str(group.get("id"))
+        meta = page.get("meta", {}) if isinstance(page.get("meta"), dict) else {}
+        offset += len(rows)
+        if not rows or offset >= meta.get("total_count", offset):
+            break
+    return None
+
+
+async def _fetch_lead_partner_ids() -> set[str]:
+    """Return the person IDs belonging to the configured 'Lead Partners' group."""
+    group_id = await _find_group_id(_lead_group_name())
+    if not group_id:
+        return set()
+    ids: set[str] = set()
+    offset = 0
+    for _ in range(60):
+        page = await _api_request(
+            "groups",
+            f"groups/{group_id}/memberships",
+            params={"per_page": 100, "offset": offset},
+        )
+        rows = [m for m in page.get("data", []) if isinstance(m, dict)]
+        for row in rows:
+            rel = row.get("relationships", {}) if isinstance(row.get("relationships"), dict) else {}
+            person_rel = rel.get("person", {}) if isinstance(rel.get("person"), dict) else {}
+            ref = person_rel.get("data") if isinstance(person_rel.get("data"), dict) else None
+            if ref and ref.get("id") is not None:
+                ids.add(str(ref["id"]))
+        meta = page.get("meta", {}) if isinstance(page.get("meta"), dict) else {}
+        offset += len(rows)
+        if not rows or offset >= meta.get("total_count", offset):
+            break
+    return ids
+
+
 ROSTER_WINDOWS = (30, 60, 90)
 
 
@@ -1202,6 +1260,7 @@ async def _build_roster_payload() -> dict[str, Any]:
     teams_raw, included = await _fetch_teams()
     serve_counts = await _fetch_serve_counts()
     partners = await _fetch_partners()
+    lead_ids = await _fetch_lead_partner_ids()
     # The whole dashboard is scoped to people whose membership is "Partner".
     partner_ids = {p["id"] for p in partners}
 
@@ -1251,6 +1310,7 @@ async def _build_roster_payload() -> dict[str, Any]:
                 "last": people[pid]["last"],
                 "url": people[pid]["url"],
                 "serves": serves(pid),
+                "lead": pid in lead_ids,
             }
             for pid in entry["ids"]
             if pid in partner_ids
@@ -1272,6 +1332,7 @@ async def _build_roster_payload() -> dict[str, Any]:
                 "url": person["url"],
                 "teams": sorted(person["teams"], key=str.lower),
                 "serves": serves(person["id"]),
+                "lead": person["id"] in lead_ids,
             }
         )
     people_out.sort(key=lambda p: ((p["last"] or p["name"]).lower(), p["name"].lower()))
@@ -1287,6 +1348,7 @@ async def _build_roster_payload() -> dict[str, Any]:
                 "last": partner["last"],
                 "url": partner["url"],
                 "serves": serves(partner["id"]),
+                "lead": partner["id"] in lead_ids,
             }
         )
     partners_no_team.sort(key=lambda p: ((p["last"] or p["name"]).lower(), p["name"].lower()))
@@ -1298,6 +1360,7 @@ async def _build_roster_payload() -> dict[str, Any]:
         "teams": teams_out,
         "partners_no_team": partners_no_team,
         "windows": list(ROSTER_WINDOWS),
+        "lead_group": _lead_group_name(),
         "generated_at": int(time.time()),
     }
 
@@ -1433,6 +1496,7 @@ h1{font-size:19px;margin:0}
 .badge{background:#eef2ff;color:#3730a3;font-weight:650;border-radius:8px;padding:3px 9px;font-size:12px;white-space:nowrap}
 .badge.b2{background:#f1f5f0;color:#3f6212}
 .badge.z{background:#fef2f2;color:#b42318}
+.badge.lead{background:#fef9c3;color:#854d0e}
 .svc{color:#98a2b3;font-weight:400;font-size:12px}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
 .chip{background:#f1f3f7;color:#3a4250;border-radius:999px;padding:4px 11px;font-size:13px;border:1px solid #e6e9ee}
@@ -1469,6 +1533,11 @@ h1{font-size:19px;margin:0}
 <div id="ddlist"></div>
 </div>
 </div>
+<select class="sortsel" id="leadsel">
+<option value="all">Lead Partners: all</option>
+<option value="only">Only Lead Partners</option>
+<option value="exclude">Exclude Lead Partners</option>
+</select>
 <select class="sortsel" id="sortsel">
 <option value="serves">Sort: Serves</option>
 <option value="count">Sort: Count</option>
@@ -1486,7 +1555,8 @@ h1{font-size:19px;margin:0}
 function initRoster(DATA){
   const $=id=>document.getElementById(id);
   const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  let view="people", query="", sortMode="serves", sortDir="desc", win=60, zeroOnly=false;
+  let view="people", query="", sortMode="serves", sortDir="desc", win=60, zeroOnly=false, leadMode="all";
+  const leadOK=p=>leadMode==="all" || (leadMode==="only" ? !!p.lead : !p.lead);
   const selected=new Set(DATA.teams.map(t=>t.name));
   const byName=(a,b)=>String(a.last||a.name).toLowerCase().localeCompare(String(b.last||b.name).toLowerCase());
   const SV=o=>{const s=o&&o.serves; if(typeof s==="number")return s; return (s&&s["d"+win])||0;};
@@ -1525,6 +1595,7 @@ function initRoster(DATA){
     let rows=DATA.people.concat(noTeamPeople()).filter(p=>{
       const teamOK = p.teams.length ? p.teams.some(t=>selected.has(t)) : all;
       if(!teamOK) return false;
+      if(!leadOK(p)) return false;
       if(zeroOnly && SV(p)!==0) return false;
       if(q && !(p.name.toLowerCase().includes(q) || p.teams.some(t=>t.toLowerCase().includes(q)))) return false;
       return true;
@@ -1535,33 +1606,35 @@ function initRoster(DATA){
       const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
       const chips=p.teams.length?p.teams.map(t=>`<span class="chip${selected.has(t)?"":" off"}">${esc(t)}</span>`).join(""):'<span class="chip none">No team assignment</span>';
       const sv=SV(p);
-      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badges"><span class="badge b2${sv===0?" z":""}" title="Serves in last ${win} days">${sv}× ${win}d</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></span></div><div class="chips">${chips}</div></div>`;
+      const lead=p.lead?'<span class="badge lead" title="Lead Partners group">★ Lead</span>':'';
+      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badges">${lead}<span class="badge b2${sv===0?" z":""}" title="Serves in last ${win} days">${sv}× ${win}d</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></span></div><div class="chips">${chips}</div></div>`;
     }).join(""):'<div class="empty">No matches.</div>';
   }
 
   function renderTeams(){
     const q=query.toLowerCase();
-    let rows=DATA.teams.filter(t=>selected.has(t.name)).map(t=>({name:t.name,instances:t.instances,members:t.members.filter(m=>(!q||m.name.toLowerCase().includes(q)||t.name.toLowerCase().includes(q))&&(!zeroOnly||SV(m)===0))}));
-    if(q||zeroOnly) rows=rows.filter(t=>(q&&t.name.toLowerCase().includes(q))||t.members.length);
+    let rows=DATA.teams.filter(t=>selected.has(t.name)).map(t=>({name:t.name,instances:t.instances,members:t.members.filter(m=>(!q||m.name.toLowerCase().includes(q)||t.name.toLowerCase().includes(q))&&(!zeroOnly||SV(m)===0)&&leadOK(m))}));
+    if(q||zeroOnly||leadMode!=="all") rows=rows.filter(t=>(q&&t.name.toLowerCase().includes(q))||t.members.length);
     rows.sort((a,b)=>{ const d = sortMode==="name" ? a.name.localeCompare(b.name) : (a.members.length-b.members.length); return dir()*d || a.name.localeCompare(b.name); });
     $("hint").textContent=rows.length+" of "+DATA.teams.length+" teams"+(zeroOnly?" · members with 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(t=>{
       const svc=t.instances>1?` <span class="svc">· ${t.instances} service types</span>`:"";
       const mem=t.members.slice().sort(sortMode==="serves"?((a,b)=>(SV(b)-SV(a))||byName(a,b)):byName);
-      const chips=mem.map(m=>{const nm=m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a>`:esc(m.name);return `<span class="chip">${nm}<span class="cx">${SV(m)}×</span></span>`;}).join("");
+      const chips=mem.map(m=>{const nm=m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a>`:esc(m.name);return `<span class="chip">${m.lead?"★ ":""}${nm}<span class="cx">${SV(m)}×</span></span>`;}).join("");
       return `<div class="item"><div class="h"><span class="nm">${esc(t.name)}${svc}</span><span class="badge">${t.members.length}</span></div><div class="chips">${chips||'<span class="svc">No one assigned</span>'}</div></div>`;
     }).join(""):'<div class="empty">No matches.</div>';
   }
 
   function renderPartners(){
     const q=query.toLowerCase();
-    let rows=(DATA.partners_no_team||[]).filter(p=>(!q||p.name.toLowerCase().includes(q))&&(!zeroOnly||SV(p)===0));
+    let rows=(DATA.partners_no_team||[]).filter(p=>(!q||p.name.toLowerCase().includes(q))&&(!zeroOnly||SV(p)===0)&&leadOK(p));
     rows.sort(cmpPeople);
     $("hint").textContent=rows.length+" partners with no team assignment"+(zeroOnly?" · 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(p=>{
       const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
       const sv=SV(p);
-      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badge b2${sv===0?" z":""}">${sv}× ${win}d</span></div></div>`;
+      const lead=p.lead?'<span class="badge lead" title="Lead Partners group">★ Lead</span>':'';
+      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badges">${lead}<span class="badge b2${sv===0?" z":""}">${sv}× ${win}d</span></span></div></div>`;
     }).join(""):'<div class="empty">Every Partner is on a team. 🎉</div>';
   }
 
@@ -1588,6 +1661,7 @@ function initRoster(DATA){
   $("sortdir").addEventListener("click",()=>{sortDir=sortDir==="asc"?"desc":"asc";updateDir();render();});
   function updateDir(){ $("sortdir").textContent = sortDir==="asc" ? "↑ Asc" : "↓ Desc"; }
   $("zerobtn").addEventListener("click",()=>{zeroOnly=!zeroOnly;$("zerobtn").classList.toggle("active",zeroOnly);render();});
+  $("leadsel").addEventListener("change",e=>{leadMode=e.target.value;render();});
 
   const ld=$("loading"); if(ld) ld.style.display="none";
   updateDir(); buildDD(); summary(); render();

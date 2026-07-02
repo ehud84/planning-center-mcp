@@ -126,6 +126,9 @@ which Services teams they serve on. Views and features:
   descending.
 - **"0 serves" filter** — show only people who haven't served at all within the
   selected window (great for follow-up).
+- **Lead Partners filter** — show all, only members of the "Lead Partners" group,
+  or exclude them; Lead Partners are marked with a ★ badge. The group name is
+  configurable via `ROSTER_LEAD_GROUP` (default "Lead Partners").
 - **By Team** — each team and its Partner members, with per-member serve counts.
   Teams with no Partner members are hidden.
 - **Partners · no team** — Partners who are not on any Services team.
