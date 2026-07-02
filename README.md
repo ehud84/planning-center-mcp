@@ -126,16 +126,20 @@ which Services teams they serve on. Views and features:
   descending.
 - **"0 serves" filter** — show only people who haven't served at all within the
   selected window (great for follow-up).
-- **Lead Partners filter** — show all, only members of the "Lead Partners" group,
-  or exclude them; Lead Partners are marked with a ★ badge. The group name is
-  configurable via `ROSTER_LEAD_GROUP` (default "Lead Partners").
+- **Role filter** — one dropdown to show all, restrict to the "Lead Partners"
+  group, exclude that group, exclude the elders, or exclude elders and deacons.
+  Lead Partners are marked with a ★ badge. The Lead Partners group name is
+  configurable via `ROSTER_LEAD_GROUP` (default "Lead Partners"); the elder and
+  deacon rosters are fixed lists of person IDs in `ROSTER_ELDER_IDS` /
+  `ROSTER_DEACON_IDS` in the server.
 - **By Team** — each team and its Partner members, with per-member serve counts.
   Teams with no Partner members are hidden.
 - **Partners · no team** — Partners who are not on any Services team.
 - **Team multi-select** — show/hide specific teams in the Person and Team views.
 - **Burnout / Inactivity cards** — the top 5 people serving the most and the
   bottom 5 serving the least over the selected window (partners with no team are
-  included in the inactivity pool).
+  included in the inactivity pool). The cards recompute to respect the active
+  team and role filters.
 
 Data is fetched live from Planning Center server-side — credentials never reach
 the browser — and cached briefly (see `ROSTER_CACHE_TTL`) because the 60-day

@@ -1167,6 +1167,30 @@ async def _fetch_lead_partner_ids() -> set[str]:
     return ids
 
 
+# Elders and deacons, by Planning Center person ID, for the role-exclusion filter.
+ROSTER_ELDER_IDS = frozenset({
+    "89892975",  # Bryan Purtle
+    "87899362",  # Curt Schampers
+    "88547242",  # Jordan Vaughan
+    "87899240",  # Josh Christophersen
+    "88546412",  # Micah Schmidt
+})
+ROSTER_DEACON_IDS = frozenset({
+    "88547391",  # John Clinton
+    "102716821",  # Cameron Kline
+    "88837041",  # Lory Olla
+    "88462936",  # Molly Becker
+    "88546769",  # Stuart Becker
+    "88837038",  # Jon (John) Olla
+    "88843218",  # Daniel Durgin
+    "88547337",  # Jon Munyan
+    "88547032",  # Ben Clinton
+    "99160400",  # Tim Longobardo
+    "88545253",  # Josh Ruff
+    "88462759",  # Rebekah Clinton
+    "118245006",  # Zach Lewis
+})
+
 ROSTER_WINDOWS = (30, 60, 90)
 
 
@@ -1311,6 +1335,8 @@ async def _build_roster_payload() -> dict[str, Any]:
                 "url": people[pid]["url"],
                 "serves": serves(pid),
                 "lead": pid in lead_ids,
+                "elder": pid in ROSTER_ELDER_IDS,
+                "deacon": pid in ROSTER_DEACON_IDS,
             }
             for pid in entry["ids"]
             if pid in partner_ids
@@ -1333,6 +1359,8 @@ async def _build_roster_payload() -> dict[str, Any]:
                 "teams": sorted(person["teams"], key=str.lower),
                 "serves": serves(person["id"]),
                 "lead": person["id"] in lead_ids,
+                "elder": person["id"] in ROSTER_ELDER_IDS,
+                "deacon": person["id"] in ROSTER_DEACON_IDS,
             }
         )
     people_out.sort(key=lambda p: ((p["last"] or p["name"]).lower(), p["name"].lower()))
@@ -1349,6 +1377,8 @@ async def _build_roster_payload() -> dict[str, Any]:
                 "url": partner["url"],
                 "serves": serves(partner["id"]),
                 "lead": partner["id"] in lead_ids,
+                "elder": partner["id"] in ROSTER_ELDER_IDS,
+                "deacon": partner["id"] in ROSTER_DEACON_IDS,
             }
         )
     partners_no_team.sort(key=lambda p: ((p["last"] or p["name"]).lower(), p["name"].lower()))
@@ -1534,9 +1564,11 @@ h1{font-size:19px;margin:0}
 </div>
 </div>
 <select class="sortsel" id="leadsel">
-<option value="all">Lead Partners: all</option>
+<option value="all">Role filter: none</option>
 <option value="only">Only Lead Partners</option>
 <option value="exclude">Exclude Lead Partners</option>
+<option value="exelder">Exclude Elders</option>
+<option value="exdeacon">Exclude Elders &amp; Deacons</option>
 </select>
 <select class="sortsel" id="sortsel">
 <option value="serves">Sort: Serves</option>
@@ -1556,13 +1588,16 @@ function initRoster(DATA){
   const $=id=>document.getElementById(id);
   const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let view="people", query="", sortMode="serves", sortDir="desc", win=60, zeroOnly=false, leadMode="all";
-  const leadOK=p=>leadMode==="all" || (leadMode==="only" ? !!p.lead : !p.lead);
+  const leadOK=p=>{ switch(leadMode){ case "only": return !!p.lead; case "exclude": return !p.lead; case "exelder": return !p.elder; case "exdeacon": return !(p.elder||p.deacon); default: return true; } };
   const selected=new Set(DATA.teams.map(t=>t.name));
   const byName=(a,b)=>String(a.last||a.name).toLowerCase().localeCompare(String(b.last||b.name).toLowerCase());
   const SV=o=>{const s=o&&o.serves; if(typeof s==="number")return s; return (s&&s["d"+win])||0;};
   const dir=()=>sortDir==="asc"?1:-1;
   // Main roster = partners on a team + partners with no team assignment.
-  const noTeamPeople=()=>(DATA.partners_no_team||[]).map(p=>({name:p.name,last:p.last,url:p.url,serves:p.serves,teams:[]}));
+  const noTeamPeople=()=>(DATA.partners_no_team||[]).map(p=>({name:p.name,last:p.last,url:p.url,serves:p.serves,teams:[],lead:p.lead,elder:p.elder,deacon:p.deacon}));
+  const teamOK=p=>p.teams.length?p.teams.some(t=>selected.has(t)):selected.size===DATA.teams.length;
+  const popOK=p=>teamOK(p)&&leadOK(p);
+  const mainList=()=>DATA.people.concat(noTeamPeople());
 
   function cmpPeople(a,b){
     let d=0;
@@ -1572,9 +1607,9 @@ function initRoster(DATA){
     return dir()*d || byName(a,b);
   }
 
+  // Cards reflect the active team + role filters (the "who is included" filters).
   function riskPool(){
-    return DATA.people.map(p=>({name:p.name,url:p.url,serves:SV(p),teams:p.teams.length}))
-      .concat((DATA.partners_no_team||[]).map(p=>({name:p.name,url:p.url,serves:SV(p),teams:0})));
+    return mainList().filter(popOK).map(p=>({name:p.name,url:p.url,serves:SV(p),teams:p.teams.length}));
   }
   function summary(){
     const total=DATA.people.length+(DATA.partners_no_team||[]).length;
@@ -1591,15 +1626,8 @@ function initRoster(DATA){
   }
 
   function renderPeople(){
-    const q=query.toLowerCase(), all=selected.size===DATA.teams.length;
-    let rows=DATA.people.concat(noTeamPeople()).filter(p=>{
-      const teamOK = p.teams.length ? p.teams.some(t=>selected.has(t)) : all;
-      if(!teamOK) return false;
-      if(!leadOK(p)) return false;
-      if(zeroOnly && SV(p)!==0) return false;
-      if(q && !(p.name.toLowerCase().includes(q) || p.teams.some(t=>t.toLowerCase().includes(q)))) return false;
-      return true;
-    });
+    const q=query.toLowerCase();
+    let rows=mainList().filter(p=> popOK(p) && (!zeroOnly||SV(p)===0) && (!q || p.name.toLowerCase().includes(q) || p.teams.some(t=>t.toLowerCase().includes(q))) );
     rows.sort(cmpPeople);
     $("hint").textContent=rows.length+" of "+(DATA.people.length+(DATA.partners_no_team||[]).length)+" partners"+(zeroOnly?" · 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(p=>{
@@ -1646,22 +1674,22 @@ function initRoster(DATA){
   function updateDDbtn(){ $("ddbtn").textContent = selected.size===DATA.teams.length ? "Teams: all" : `Teams: ${selected.size}/${DATA.teams.length}`; }
   function buildDD(){
     $("ddlist").innerHTML=DATA.teams.map(t=>`<label class="ddrow"><input type="checkbox" value="${esc(t.name)}" ${selected.has(t.name)?"checked":""}><span>${esc(t.name)}</span><span class="ddn">${t.members.length}</span></label>`).join("");
-    $("ddlist").querySelectorAll("input").forEach(cb=>cb.addEventListener("change",()=>{cb.checked?selected.add(cb.value):selected.delete(cb.value);updateDDbtn();render();}));
+    $("ddlist").querySelectorAll("input").forEach(cb=>cb.addEventListener("change",()=>{cb.checked?selected.add(cb.value):selected.delete(cb.value);updateDDbtn();summary();render();}));
     updateDDbtn();
   }
 
   $("seg").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;win=parseInt(b.dataset.win,10);[...$("seg").children].forEach(x=>x.classList.toggle("active",x.dataset.win==String(win)));summary();render();});
   $("ddbtn").addEventListener("click",()=>{$("ddpanel").hidden=!$("ddpanel").hidden;});
   document.addEventListener("click",e=>{ if(!$("teamdd").contains(e.target)) $("ddpanel").hidden=true; });
-  $("selall").addEventListener("click",()=>{DATA.teams.forEach(t=>selected.add(t.name));buildDD();render();});
-  $("selnone").addEventListener("click",()=>{selected.clear();buildDD();render();});
+  $("selall").addEventListener("click",()=>{DATA.teams.forEach(t=>selected.add(t.name));buildDD();summary();render();});
+  $("selnone").addEventListener("click",()=>{selected.clear();buildDD();summary();render();});
   $("toggle").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.view;[...$("toggle").children].forEach(x=>x.classList.toggle("active",x.dataset.view===view));render();});
   $("search").addEventListener("input",e=>{query=e.target.value.trim();render();});
   $("sortsel").addEventListener("change",e=>{sortMode=e.target.value;sortDir=(sortMode==="name")?"asc":"desc";updateDir();render();});
   $("sortdir").addEventListener("click",()=>{sortDir=sortDir==="asc"?"desc":"asc";updateDir();render();});
   function updateDir(){ $("sortdir").textContent = sortDir==="asc" ? "↑ Asc" : "↓ Desc"; }
   $("zerobtn").addEventListener("click",()=>{zeroOnly=!zeroOnly;$("zerobtn").classList.toggle("active",zeroOnly);render();});
-  $("leadsel").addEventListener("change",e=>{leadMode=e.target.value;render();});
+  $("leadsel").addEventListener("change",e=>{leadMode=e.target.value;summary();render();});
 
   const ld=$("loading"); if(ld) ld.style.display="none";
   updateDir(); buildDD(); summary(); render();
