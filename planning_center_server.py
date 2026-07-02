@@ -1109,14 +1109,24 @@ async def _fetch_partners() -> list[JsonObject]:
     return partners
 
 
-async def _fetch_serve_counts(days: int = ROSTER_WINDOW_DAYS) -> dict[str, int]:
-    """Count scheduled (non-declined) serving slots per person over the window.
+ROSTER_WINDOWS = (30, 60, 90)
 
-    Walks every active service type's recent plans and tallies each person's
-    non-declined plan-people assignments across all teams.
+
+def _empty_serves() -> dict[str, int]:
+    return {f"d{d}": 0 for d in ROSTER_WINDOWS}
+
+
+async def _fetch_serve_counts() -> dict[str, dict[str, int]]:
+    """Count non-declined serving slots per person for each rolling window.
+
+    Walks every active service type's plans back to the widest window (90 days)
+    once, and tallies each assignment into every window it falls within, so one
+    pass yields the 30/60/90-day counts. Returns {person_id: {d30, d60, d90}}.
     """
-    cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
-    counts: dict[str, int] = {}
+    now = datetime.now(timezone.utc).timestamp()
+    cutoffs = {f"d{d}": now - d * 86400 for d in ROSTER_WINDOWS}
+    widest = now - max(ROSTER_WINDOWS) * 86400
+    counts: dict[str, dict[str, int]] = {}
 
     st_page = await _api_request("services", "service_types", params={"per_page": 100})
     service_type_ids = [
@@ -1124,10 +1134,10 @@ async def _fetch_serve_counts(days: int = ROSTER_WINDOW_DAYS) -> dict[str, int]:
     ]
 
     for stid in service_type_ids:
-        plan_ids: list[str] = []
+        plans: list[tuple[str, float]] = []  # (plan_id, sort_timestamp)
         offset = 0
         done = False
-        for _ in range(30):
+        for _ in range(40):
             page = await _api_request(
                 "services",
                 f"service_types/{stid}/plans",
@@ -1138,8 +1148,8 @@ async def _fetch_serve_counts(days: int = ROSTER_WINDOW_DAYS) -> dict[str, int]:
                 break
             for plan in data:
                 sort_dt = _parse_iso(_attributes(plan).get("sort_date"))
-                if sort_dt is not None and sort_dt.timestamp() >= cutoff:
-                    plan_ids.append(str(plan.get("id")))
+                if sort_dt is not None and sort_dt.timestamp() >= widest:
+                    plans.append((str(plan.get("id")), sort_dt.timestamp()))
                 else:
                     done = True
                     break
@@ -1150,9 +1160,12 @@ async def _fetch_serve_counts(days: int = ROSTER_WINDOW_DAYS) -> dict[str, int]:
             if offset >= meta.get("total_count", offset):
                 break
 
-        for plan_id in plan_ids:
+        for plan_id, sort_ts in plans:
+            windows_hit = [key for key, cut in cutoffs.items() if sort_ts >= cut]
+            if not windows_hit:
+                continue
             p_offset = 0
-            for _ in range(30):
+            for _ in range(40):
                 pp = await _api_request(
                     "services",
                     f"service_types/{stid}/plans/{plan_id}/team_members",
@@ -1167,7 +1180,9 @@ async def _fetch_serve_counts(days: int = ROSTER_WINDOW_DAYS) -> dict[str, int]:
                     person_ref = person_rel.get("data") if isinstance(person_rel.get("data"), dict) else None
                     if person_ref and person_ref.get("id") is not None:
                         person_id = str(person_ref["id"])
-                        counts[person_id] = counts.get(person_id, 0) + 1
+                        bucket = counts.setdefault(person_id, _empty_serves())
+                        for key in windows_hit:
+                            bucket[key] += 1
                 p_offset += len(rows)
                 meta = pp.get("meta", {}) if isinstance(pp.get("meta"), dict) else {}
                 if p_offset >= meta.get("total_count", p_offset):
@@ -1185,7 +1200,7 @@ async def _build_roster_payload() -> dict[str, Any]:
     in the last ROSTER_WINDOW_DAYS across all teams.
     """
     teams_raw, included = await _fetch_teams()
-    serve_counts = await _fetch_serve_counts(ROSTER_WINDOW_DAYS)
+    serve_counts = await _fetch_serve_counts()
     partners = await _fetch_partners()
     # The whole dashboard is scoped to people whose membership is "Partner".
     partner_ids = {p["id"] for p in partners}
@@ -1225,8 +1240,8 @@ async def _build_roster_payload() -> dict[str, Any]:
             entry["ids"].add(pid)
             people[pid]["teams"].add(team_name)
 
-    def serves(pid: str) -> int:
-        return serve_counts.get(pid, 0)
+    def serves(pid: str) -> dict[str, int]:
+        return serve_counts.get(pid, _empty_serves())
 
     teams_out = []
     for entry in by_name.values():
@@ -1276,24 +1291,13 @@ async def _build_roster_payload() -> dict[str, Any]:
         )
     partners_no_team.sort(key=lambda p: ((p["last"] or p["name"]).lower(), p["name"].lower()))
 
-    # Card pool: people on a team + partners with no team (per the chosen scope).
-    card_pool = [
-        {"name": p["name"], "url": p["url"], "serves": p["serves"], "teams": len(p["teams"])}
-        for p in people_out
-    ] + [
-        {"name": p["name"], "url": p["url"], "serves": p["serves"], "teams": 0}
-        for p in partners_no_team
-    ]
-    burnout = sorted(card_pool, key=lambda x: (-x["serves"], x["name"].lower()))[:5]
-    inactivity = sorted(card_pool, key=lambda x: (x["serves"], -x["teams"], x["name"].lower()))[:5]
-
+    # Burnout / inactivity cards are derived client-side per selected window from
+    # people_out + partners_no_team, so we only ship the raw per-window counts.
     return {
         "people": people_out,
         "teams": teams_out,
         "partners_no_team": partners_no_team,
-        "burnout": burnout,
-        "inactivity": inactivity,
-        "window_days": ROSTER_WINDOW_DAYS,
+        "windows": list(ROSTER_WINDOWS),
         "generated_at": int(time.time()),
     }
 
@@ -1396,6 +1400,11 @@ h1{font-size:19px;margin:0}
 .pn a{color:#1c2430;text-decoration:none}
 .pv{font-size:12px;font-weight:700;color:#48505c;white-space:nowrap}
 .controls{position:sticky;top:0;background:#f6f7f9;padding:8px 0;z-index:10}
+.winbar{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.winlabel{font-size:12px;color:#667085;font-weight:600}
+.seg{display:inline-flex;background:#eceef2;border-radius:9px;padding:3px}
+.seg button{border:0;background:transparent;padding:7px 14px;border-radius:7px;font-size:13px;font-weight:600;color:#48505c;cursor:pointer}
+.seg button.active{background:#fff;color:#1c2430;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .toggle{display:flex;background:#eceef2;border-radius:10px;padding:3px;margin-bottom:8px}
 .toggle button{flex:1;border:0;background:transparent;padding:10px 6px;border-radius:8px;font-size:13px;font-weight:600;color:#48505c;cursor:pointer;white-space:nowrap}
 .toggle button.active{background:#fff;color:#1c2430;box-shadow:0 1px 2px rgba(0,0,0,.08)}
@@ -1436,6 +1445,12 @@ h1{font-size:19px;margin:0}
 <div class="cards" id="cards"></div>
 <div class="risk" id="risk"></div>
 <div class="controls">
+<div class="winbar"><span class="winlabel">Serving window</span>
+<div class="seg" id="seg">
+<button type="button" data-win="30">Last 30d</button>
+<button type="button" data-win="60" class="active">Last 60d</button>
+<button type="button" data-win="90">Last 90d</button>
+</div></div>
 <div class="toggle" id="toggle">
 <button type="button" data-view="people" class="active">By Person</button>
 <button type="button" data-view="teams">By Team</button>
@@ -1451,7 +1466,7 @@ h1{font-size:19px;margin:0}
 </div>
 </div>
 <select class="sortsel" id="sortsel">
-<option value="serves">Sort: Serves (60d)</option>
+<option value="serves">Sort: Serves</option>
 <option value="count">Sort: Count</option>
 <option value="name">Sort: A–Z</option>
 </select>
@@ -1465,11 +1480,15 @@ h1{font-size:19px;margin:0}
 function initRoster(DATA){
   const $=id=>document.getElementById(id);
   const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const win=DATA.window_days||60;
-  let view="people", query="", sortMode="serves";
+  let view="people", query="", sortMode="serves", win=60;
   const selected=new Set(DATA.teams.map(t=>t.name));
   const byName=(a,b)=>String(a.last||a.name).toLowerCase().localeCompare(String(b.last||b.name).toLowerCase());
+  const SV=o=>{const s=o&&o.serves; if(typeof s==="number")return s; return (s&&s["d"+win])||0;};
 
+  function riskPool(){
+    return DATA.people.map(p=>({name:p.name,url:p.url,serves:SV(p),teams:p.teams.length}))
+      .concat((DATA.partners_no_team||[]).map(p=>({name:p.name,url:p.url,serves:SV(p),teams:0})));
+  }
   function summary(){
     const ppl=DATA.people.length, tms=DATA.teams.length;
     const asg=DATA.people.reduce((s,p)=>s+p.teams.length,0);
@@ -1477,22 +1496,25 @@ function initRoster(DATA){
     const pnt=(DATA.partners_no_team||[]).length;
     const c=[["Partners on teams",ppl],["Teams",tms],["Avg teams",avg],["Partners · no team",pnt]];
     $("cards").innerHTML=c.map(x=>`<div class="card"><div class="n">${esc(x[1])}</div><div class="l">${esc(x[0])}</div></div>`).join("");
+    const pool=riskPool();
+    const burnout=pool.slice().sort((a,b)=>(b.serves-a.serves)||a.name.localeCompare(b.name)).slice(0,5);
+    const inactivity=pool.slice().sort((a,b)=>(a.serves-b.serves)||(b.teams-a.teams)||a.name.localeCompare(b.name)).slice(0,5);
     const panel=(title,cls,rows)=>`<div class="panel ${cls}"><div class="pt">${title}</div>`+
       ((rows&&rows.length)?rows.map((r,i)=>`<div class="pr"><span class="pi">${i+1}</span><span class="pn">${r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`:esc(r.name)}</span><span class="pv">${r.serves}×</span></div>`).join(""):`<div class="pr"><span class="pn" style="color:#98a2b3">No data</span></div>`)+`</div>`;
-    $("risk").innerHTML=panel(`🔥 Burnout risk · most serves (${win}d)`,"burn",DATA.burnout)+panel(`💤 Inactivity risk · fewest serves (${win}d)`,"inact",DATA.inactivity);
+    $("risk").innerHTML=panel(`🔥 Burnout risk · most serves (${win}d)`,"burn",burnout)+panel(`💤 Inactivity risk · fewest serves (${win}d)`,"inact",inactivity);
     const d=new Date((DATA.generated_at||0)*1000);
-    $("sub").textContent=`Partners on Services teams · serving counts from the last ${win} days · updated `+d.toLocaleString();
+    $("sub").textContent=`Partners on Services teams · serving counts over the last ${win} days · updated `+d.toLocaleString();
   }
 
   function renderPeople(){
     const q=query.toLowerCase();
     let rows=DATA.people.filter(p=>p.teams.some(t=>selected.has(t)) && (!q||p.name.toLowerCase().includes(q)||p.teams.some(t=>t.toLowerCase().includes(q))));
-    rows.sort(sortMode==="name"?byName:sortMode==="count"?((a,b)=>(b.teams.length-a.teams.length)||byName(a,b)):((a,b)=>(b.serves-a.serves)||byName(a,b)));
-    $("hint").textContent=rows.length+" of "+DATA.people.length+" people";
+    rows.sort(sortMode==="name"?byName:sortMode==="count"?((a,b)=>(b.teams.length-a.teams.length)||byName(a,b)):((a,b)=>(SV(b)-SV(a))||byName(a,b)));
+    $("hint").textContent=rows.length+" of "+DATA.people.length+" partners";
     $("list").innerHTML=rows.length?rows.map(p=>{
       const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
       const chips=p.teams.map(t=>`<span class="chip${selected.has(t)?"":" off"}">${esc(t)}</span>`).join("");
-      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badges"><span class="badge b2" title="Serves in last ${win} days">${p.serves}× ${win}d</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></span></div><div class="chips">${chips}</div></div>`;
+      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badges"><span class="badge b2" title="Serves in last ${win} days">${SV(p)}× ${win}d</span><span class="badge">${p.teams.length} team${p.teams.length!=1?"s":""}</span></span></div><div class="chips">${chips}</div></div>`;
     }).join(""):'<div class="empty">No matches.</div>';
   }
 
@@ -1504,7 +1526,8 @@ function initRoster(DATA){
     $("hint").textContent=rows.length+" of "+DATA.teams.length+" teams";
     $("list").innerHTML=rows.length?rows.map(t=>{
       const svc=t.instances>1?` <span class="svc">· ${t.instances} service types</span>`:"";
-      const chips=t.members.map(m=>{const nm=m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a>`:esc(m.name);return `<span class="chip">${nm}<span class="cx">${m.serves}×</span></span>`;}).join("");
+      const mem=t.members.slice().sort(sortMode==="serves"?((a,b)=>(SV(b)-SV(a))||byName(a,b)):byName);
+      const chips=mem.map(m=>{const nm=m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a>`:esc(m.name);return `<span class="chip">${nm}<span class="cx">${SV(m)}×</span></span>`;}).join("");
       return `<div class="item"><div class="h"><span class="nm">${esc(t.name)}${svc}</span><span class="badge">${t.members.length}</span></div><div class="chips">${chips||'<span class="svc">No one assigned</span>'}</div></div>`;
     }).join(""):'<div class="empty">No matches.</div>';
   }
@@ -1512,11 +1535,11 @@ function initRoster(DATA){
   function renderPartners(){
     const q=query.toLowerCase();
     let rows=(DATA.partners_no_team||[]).filter(p=>!q||p.name.toLowerCase().includes(q));
-    rows.sort(sortMode==="name"?byName:((a,b)=>(b.serves-a.serves)||byName(a,b)));
+    rows.sort(sortMode==="name"?byName:((a,b)=>(SV(b)-SV(a))||byName(a,b)));
     $("hint").textContent=rows.length+" partners with no team assignment";
     $("list").innerHTML=rows.length?rows.map(p=>{
       const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
-      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badge b2">${p.serves}× ${win}d</span></div></div>`;
+      return `<div class="item"><div class="h"><span class="nm">${nm}</span><span class="badge b2">${SV(p)}× ${win}d</span></div></div>`;
     }).join(""):'<div class="empty">Every Partner is on a team. 🎉</div>';
   }
 
@@ -1532,6 +1555,7 @@ function initRoster(DATA){
     updateDDbtn();
   }
 
+  $("seg").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;win=parseInt(b.dataset.win,10);[...$("seg").children].forEach(x=>x.classList.toggle("active",x.dataset.win==String(win)));summary();render();});
   $("ddbtn").addEventListener("click",()=>{$("ddpanel").hidden=!$("ddpanel").hidden;});
   document.addEventListener("click",e=>{ if(!$("teamdd").contains(e.target)) $("ddpanel").hidden=true; });
   $("selall").addEventListener("click",()=>{DATA.teams.forEach(t=>selected.add(t.name));buildDD();render();});
