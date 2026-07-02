@@ -113,14 +113,14 @@ If `MCP_BEARER_TOKEN` is set, include `Authorization: Bearer dev-token`.
 ## Mobile roster page
 
 A PIN-protected, mobile-friendly roster is served at `/roster` when `ROSTER_PIN`
-is set. It lists everyone on a Planning Center **Services** team and the teams
-they serve on. Views and features:
+is set. It is scoped to people whose People **membership is "Partner"**, showing
+which Services teams they serve on. Views and features:
 
-- **By Person** — each person, the teams they're on, and how many times they
+- **By Person** — each Partner, the teams they're on, and how many times they
   were scheduled to serve (non-declined) in the last 60 days.
-- **By Team** — each team and its members, with per-member 60-day serve counts.
-- **Partners · no team** — people whose People membership is "Partner" who are
-  not on any Services team.
+- **By Team** — each team and its Partner members, with per-member 60-day serve
+  counts. Teams with no Partner members are hidden.
+- **Partners · no team** — Partners who are not on any Services team.
 - **Team multi-select** — show/hide specific teams in the Person and Team views.
 - **Burnout / Inactivity cards** — the top 5 people serving the most and the
   bottom 5 serving the least over the last 60 days (partners with no team are

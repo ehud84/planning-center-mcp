@@ -1187,6 +1187,8 @@ async def _build_roster_payload() -> dict[str, Any]:
     teams_raw, included = await _fetch_teams()
     serve_counts = await _fetch_serve_counts(ROSTER_WINDOW_DAYS)
     partners = await _fetch_partners()
+    # The whole dashboard is scoped to people whose membership is "Partner".
+    partner_ids = {p["id"] for p in partners}
 
     people: dict[str, JsonObject] = {}
     for pid, record in included.items():
@@ -1236,14 +1238,17 @@ async def _build_roster_payload() -> dict[str, Any]:
                 "serves": serves(pid),
             }
             for pid in entry["ids"]
+            if pid in partner_ids
         ]
+        if not members:  # skip teams with no Partner members
+            continue
         members.sort(key=lambda m: ((m["last"] or m["name"]).lower(), m["name"].lower()))
         teams_out.append({"name": entry["name"], "instances": entry["instances"], "members": members})
     teams_out.sort(key=lambda t: t["name"].lower())
 
     people_out = []
     for person in people.values():
-        if not person["teams"]:
+        if not person["teams"] or person["id"] not in partner_ids:
             continue
         people_out.append(
             {
@@ -1470,13 +1475,13 @@ function initRoster(DATA){
     const asg=DATA.people.reduce((s,p)=>s+p.teams.length,0);
     const avg=ppl?(asg/ppl).toFixed(1):"0";
     const pnt=(DATA.partners_no_team||[]).length;
-    const c=[["People on teams",ppl],["Teams",tms],["Avg teams",avg],["Partners · no team",pnt]];
+    const c=[["Partners on teams",ppl],["Teams",tms],["Avg teams",avg],["Partners · no team",pnt]];
     $("cards").innerHTML=c.map(x=>`<div class="card"><div class="n">${esc(x[1])}</div><div class="l">${esc(x[0])}</div></div>`).join("");
     const panel=(title,cls,rows)=>`<div class="panel ${cls}"><div class="pt">${title}</div>`+
       ((rows&&rows.length)?rows.map((r,i)=>`<div class="pr"><span class="pi">${i+1}</span><span class="pn">${r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`:esc(r.name)}</span><span class="pv">${r.serves}×</span></div>`).join(""):`<div class="pr"><span class="pn" style="color:#98a2b3">No data</span></div>`)+`</div>`;
     $("risk").innerHTML=panel(`🔥 Burnout risk · most serves (${win}d)`,"burn",DATA.burnout)+panel(`💤 Inactivity risk · fewest serves (${win}d)`,"inact",DATA.inactivity);
     const d=new Date((DATA.generated_at||0)*1000);
-    $("sub").textContent=`On-team roster with serving counts from the last ${win} days · updated `+d.toLocaleString();
+    $("sub").textContent=`Partners on Services teams · serving counts from the last ${win} days · updated `+d.toLocaleString();
   }
 
   function renderPeople(){
