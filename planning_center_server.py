@@ -1565,10 +1565,9 @@ h1{font-size:19px;margin:0}
 </div>
 <select class="sortsel" id="leadsel">
 <option value="all">Role filter: none</option>
-<option value="only">Only Lead Partners</option>
-<option value="exclude">Exclude Lead Partners</option>
 <option value="exelder">Exclude Elders</option>
 <option value="exdeacon">Exclude Elders &amp; Deacons</option>
+<option value="exclude">Exclude Elders, Deacons, &amp; Lead Partners</option>
 </select>
 <select class="sortsel" id="sortsel">
 <option value="serves">Sort: Serves</option>
@@ -1588,7 +1587,7 @@ function initRoster(DATA){
   const $=id=>document.getElementById(id);
   const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   let view="people", query="", sortMode="serves", sortDir="desc", win=60, zeroOnly=false, leadMode="all";
-  const leadOK=p=>{ switch(leadMode){ case "only": return !!p.lead; case "exclude": return !p.lead; case "exelder": return !p.elder; case "exdeacon": return !(p.elder||p.deacon); default: return true; } };
+  const leadOK=p=>{ switch(leadMode){ case "exclude": return !(p.lead||p.elder||p.deacon); case "exelder": return !p.elder; case "exdeacon": return !(p.elder||p.deacon); default: return true; } };
   const selected=new Set(DATA.teams.map(t=>t.name));
   const byName=(a,b)=>String(a.last||a.name).toLowerCase().localeCompare(String(b.last||b.name).toLowerCase());
   const SV=o=>{const s=o&&o.serves; if(typeof s==="number")return s; return (s&&s["d"+win])||0;};
