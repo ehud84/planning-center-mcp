@@ -31,9 +31,10 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 Transport = Literal["stdio", "streamable-http"]
-ServiceName = Literal["groups", "people", "services"]
+ServiceName = Literal["groups", "people", "services", "calendar"]
 GroupRole = Literal["member", "leader"]
 PlanTimeFilter = Literal["future", "past"]
+ConflictStatus = Literal["resolved", "unresolved", "future"]
 JsonObject = dict[str, Any]
 
 LOGGER = logging.getLogger("planning_center_mcp")
@@ -45,10 +46,12 @@ PCO_API_ROOT = os.getenv("PCO_API_ROOT", "https://api.planningcenteronline.com")
 PCO_GROUPS_API_BASE = os.getenv("PCO_GROUPS_API_BASE", f"{PCO_API_ROOT}/groups/v2").rstrip("/")
 PCO_PEOPLE_API_BASE = os.getenv("PCO_PEOPLE_API_BASE", f"{PCO_API_ROOT}/people/v2").rstrip("/")
 PCO_SERVICES_API_BASE = os.getenv("PCO_SERVICES_API_BASE", f"{PCO_API_ROOT}/services/v2").rstrip("/")
+PCO_CALENDAR_API_BASE = os.getenv("PCO_CALENDAR_API_BASE", f"{PCO_API_ROOT}/calendar/v2").rstrip("/")
 PCO_SERVICE_BASE_URLS: dict[ServiceName, str] = {
     "groups": PCO_GROUPS_API_BASE,
     "people": PCO_PEOPLE_API_BASE,
     "services": PCO_SERVICES_API_BASE,
+    "calendar": PCO_CALENDAR_API_BASE,
 }
 
 
@@ -1761,6 +1764,236 @@ async def roster_logout(request: Request) -> Response:
     response = RedirectResponse("/roster", status_code=303)
     response.delete_cookie(ROSTER_COOKIE, path="/roster")
     return response
+
+
+# ---------------------------------------------------------------------------
+# Planning Center Calendar (calendar/v2) read-only tools
+# ---------------------------------------------------------------------------
+def _event_summary(event: JsonObject) -> JsonObject:
+    attrs = _attributes(event)
+    return {
+        "id": event.get("id"),
+        "type": event.get("type"),
+        "name": attrs.get("name"),
+        "summary": attrs.get("summary"),
+        "approval_status": attrs.get("approval_status"),
+        "featured": attrs.get("featured"),
+        "visible_in_church_center": attrs.get("visible_in_church_center"),
+        "registration_url": attrs.get("registration_url"),
+        "attributes": attrs,
+    }
+
+
+def _event_instance_summary(instance: JsonObject) -> JsonObject:
+    attrs = _attributes(instance)
+    return {
+        "id": instance.get("id"),
+        "type": instance.get("type"),
+        "name": attrs.get("name"),
+        "starts_at": attrs.get("starts_at"),
+        "ends_at": attrs.get("ends_at"),
+        "all_day_event": attrs.get("all_day_event"),
+        "location": attrs.get("location"),
+        "recurrence_description": attrs.get("recurrence_description"),
+        "church_center_url": attrs.get("church_center_url"),
+        "event_id": _relationship_id(instance, "event"),
+        "attributes": attrs,
+    }
+
+
+def _resource_summary(resource: JsonObject) -> JsonObject:
+    attrs = _attributes(resource)
+    return {
+        "id": resource.get("id"),
+        "type": resource.get("type"),
+        "name": attrs.get("name"),
+        "kind": attrs.get("kind"),
+        "description": attrs.get("description"),
+        "quantity": attrs.get("quantity"),
+        "home_location": attrs.get("home_location"),
+        "path_name": attrs.get("path_name"),
+        "expires_at": attrs.get("expires_at"),
+        "attributes": attrs,
+    }
+
+
+def _resource_booking_summary(booking: JsonObject) -> JsonObject:
+    attrs = _attributes(booking)
+    return {
+        "id": booking.get("id"),
+        "type": booking.get("type"),
+        "starts_at": attrs.get("starts_at"),
+        "ends_at": attrs.get("ends_at"),
+        "quantity": attrs.get("quantity"),
+        "event_id": _relationship_id(booking, "event"),
+        "event_instance_id": _relationship_id(booking, "event_instance"),
+        "resource_id": _relationship_id(booking, "resource"),
+        "attributes": attrs,
+    }
+
+
+def _conflict_summary(conflict: JsonObject) -> JsonObject:
+    attrs = _attributes(conflict)
+    return {
+        "id": conflict.get("id"),
+        "type": conflict.get("type"),
+        "note": attrs.get("note"),
+        "resolved_at": attrs.get("resolved_at"),
+        "resource_id": _relationship_id(conflict, "resource"),
+        "winner_event_id": _relationship_id(conflict, "winner"),
+        "resolved_by_person_id": _relationship_id(conflict, "resolved_by"),
+        "attributes": attrs,
+    }
+
+
+@mcp.tool(title="List Calendar Events", annotations=READ_ONLY, structured_output=True)
+async def pco_list_events(
+    per_page: Annotated[
+        int,
+        Field(description="Number of events to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 25,
+) -> dict[str, Any]:
+    """List Planning Center Calendar events (the event definitions on the calendar)."""
+    data = await _api_request("calendar", "events", params={"per_page": per_page})
+    events = [_event_summary(event) for event in data.get("data", []) if isinstance(event, dict)]
+    return _collection_response(data, "events", events)
+
+
+@mcp.tool(title="List Calendar Event Instances", annotations=READ_ONLY, structured_output=True)
+async def pco_list_event_instances(
+    event_id: Annotated[
+        str | None,
+        Field(
+            description="Optional event ID (from pco_list_events) to list only that event's instances",
+            min_length=1,
+        ),
+    ] = None,
+    upcoming_only: Annotated[
+        bool,
+        Field(description="If true, return only future instances"),
+    ] = False,
+    per_page: Annotated[
+        int,
+        Field(description="Number of instances to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 25,
+    order: Annotated[
+        str,
+        Field(description="Sort order, e.g. 'starts_at' (soonest first) or '-starts_at' (latest first)"),
+    ] = "starts_at",
+) -> dict[str, Any]:
+    """List calendar event instances (specific dated occurrences) with start/end time and location."""
+    endpoint = f"events/{event_id}/event_instances" if event_id else "event_instances"
+    params: dict[str, Any] = {"per_page": per_page, "order": order}
+    if upcoming_only:
+        params["filter"] = "future"
+    data = await _api_request("calendar", endpoint, params=params)
+    instances = [
+        _event_instance_summary(instance)
+        for instance in data.get("data", [])
+        if isinstance(instance, dict)
+    ]
+    response = _collection_response(data, "event_instances", instances)
+    if event_id:
+        response["event_id"] = event_id
+    return response
+
+
+@mcp.tool(title="List Calendar Resources", annotations=READ_ONLY, structured_output=True)
+async def pco_list_resources(
+    per_page: Annotated[
+        int,
+        Field(description="Number of resources to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 100,
+) -> dict[str, Any]:
+    """List Planning Center Calendar resources — bookable rooms and equipment (see the 'kind' field)."""
+    data = await _api_request("calendar", "resources", params={"per_page": per_page})
+    resources = [
+        _resource_summary(resource) for resource in data.get("data", []) if isinstance(resource, dict)
+    ]
+    return _collection_response(data, "resources", resources)
+
+
+@mcp.tool(title="List Resource Bookings", annotations=READ_ONLY, structured_output=True)
+async def pco_list_resource_bookings(
+    event_id: Annotated[
+        str | None,
+        Field(description="Optional event ID to list only that event's resource bookings", min_length=1),
+    ] = None,
+    event_instance_id: Annotated[
+        str | None,
+        Field(
+            description="Optional event instance ID to list only that instance's resource bookings",
+            min_length=1,
+        ),
+    ] = None,
+    resource_id: Annotated[
+        str | None,
+        Field(description="Optional resource ID to list only that room/equipment's bookings", min_length=1),
+    ] = None,
+    upcoming_only: Annotated[
+        bool,
+        Field(description="If true, return only future bookings"),
+    ] = False,
+    per_page: Annotated[
+        int,
+        Field(description="Number of bookings to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 25,
+    order: Annotated[
+        str,
+        Field(description="Sort order, e.g. 'starts_at' or '-starts_at'"),
+    ] = "starts_at",
+) -> dict[str, Any]:
+    """List resource bookings — which room or equipment is reserved for an event/instance, and when.
+
+    Provide at most one of event_instance_id, event_id, or resource_id to scope the results.
+    """
+    if event_instance_id:
+        endpoint = f"event_instances/{event_instance_id}/resource_bookings"
+    elif event_id:
+        endpoint = f"events/{event_id}/resource_bookings"
+    elif resource_id:
+        endpoint = f"resources/{resource_id}/resource_bookings"
+    else:
+        endpoint = "resource_bookings"
+    params: dict[str, Any] = {"per_page": per_page, "order": order}
+    if upcoming_only:
+        params["filter"] = "future"
+    data = await _api_request("calendar", endpoint, params=params)
+    bookings = [
+        _resource_booking_summary(booking)
+        for booking in data.get("data", [])
+        if isinstance(booking, dict)
+    ]
+    response = _collection_response(data, "resource_bookings", bookings)
+    for key, value in (
+        ("event_id", event_id),
+        ("event_instance_id", event_instance_id),
+        ("resource_id", resource_id),
+    ):
+        if value:
+            response[key] = value
+    return response
+
+
+@mcp.tool(title="List Calendar Conflicts", annotations=READ_ONLY, structured_output=True)
+async def pco_list_conflicts(
+    status: Annotated[
+        ConflictStatus | None,
+        Field(description="Filter by 'unresolved', 'resolved', or 'future'; omit for all conflicts"),
+    ] = None,
+    per_page: Annotated[
+        int,
+        Field(description="Number of conflicts to return from Planning Center (1-100)", ge=1, le=100),
+    ] = 25,
+) -> dict[str, Any]:
+    """List Planning Center Calendar conflicts (e.g. double-booked resources); resolved_at is set once resolved."""
+    data = await _api_request(
+        "calendar", "conflicts", params={"per_page": per_page, "filter": status}
+    )
+    conflicts = [
+        _conflict_summary(conflict) for conflict in data.get("data", []) if isinstance(conflict, dict)
+    ]
+    return _collection_response(data, "conflicts", conflicts)
 
 
 def _is_valid_mcp_token(token: str) -> bool:
