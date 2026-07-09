@@ -176,8 +176,12 @@ mcp = FastMCP(
     streamable_http_path="/mcp",
     stateless_http=True,
     json_response=True,
-    token_verifier=_TOKEN_VERIFIER,
-    auth=_auth_settings(_TOKEN_VERIFIER is not None),
+    # Built-in auth is intentionally disabled so FastMCP's OAuth resource-server
+    # routes do not collide with the connector OAuth handshake defined below.
+    # Access to /mcp is enforced by _guard_mcp_endpoint() at serve time, which
+    # accepts the tokens that handshake issues (and MCP_BEARER_TOKEN if set).
+    token_verifier=None,
+    auth=None,
 )
 
 READ_ONLY = ToolAnnotations(
@@ -1759,6 +1763,66 @@ async def roster_logout(request: Request) -> Response:
     return response
 
 
+def _is_valid_mcp_token(token: str) -> bool:
+    """A token is accepted if our OAuth handshake issued it, or if it matches
+    the optional static MCP_BEARER_TOKEN (handy for direct/API clients)."""
+    if not token:
+        return False
+    if token in _oauth_tokens:
+        return True
+    static_token = os.getenv("MCP_BEARER_TOKEN", "").strip()
+    if static_token and secrets.compare_digest(token, static_token):
+        return True
+    return False
+
+
+def _guard_mcp_endpoint(app):
+    """Wrap the ASGI app to require a valid bearer token on the /mcp endpoint.
+
+    FastMCP's built-in auth is disabled so it cannot collide with the OAuth
+    connector handshake; access control lives here instead. Every other route
+    (/health, /roster, /register, /authorize, /token, /.well-known/*) stays
+    public so the sign-in flow and the roster page keep working. Lifespan and
+    other non-HTTP events pass straight through to the wrapped app.
+    """
+    mcp_path = getattr(mcp.settings, "streamable_http_path", "/mcp") or "/mcp"
+
+    async def guarded(scope, receive, send):
+        if scope.get("type") == "http":
+            path = scope.get("path", "")
+            if path == mcp_path or path.startswith(mcp_path + "/"):
+                headers = {
+                    key.decode("latin-1").lower(): value.decode("latin-1")
+                    for key, value in scope.get("headers", [])
+                }
+                authorization = headers.get("authorization", "")
+                token = (
+                    authorization[7:].strip()
+                    if authorization[:7].lower() == "bearer "
+                    else ""
+                )
+                if not _is_valid_mcp_token(token):
+                    await send({
+                        "type": "http.response.start",
+                        "status": 401,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"www-authenticate", b"Bearer"),
+                        ],
+                    })
+                    await send({
+                        "type": "http.response.body",
+                        "body": (
+                            b'{"error":"invalid_token","error_description":'
+                            b'"Missing or invalid access token"}'
+                        ),
+                    })
+                    return
+        await app(scope, receive, send)
+
+    return guarded
+
+
 def main() -> None:
     logging.basicConfig(
         level=_log_level(),
@@ -1767,15 +1831,26 @@ def main() -> None:
 
     transport = _select_transport()
     LOGGER.info(
-        "Starting Planning Center MCP server transport=%s host=%s port=%s pco_configured=%s bearer_auth=%s",
+        "Starting Planning Center MCP server transport=%s host=%s port=%s pco_configured=%s static_token=%s",
         transport,
         mcp.settings.host,
         mcp.settings.port,
         bool(os.getenv("PCO_CLIENT_ID") and os.getenv("PCO_CLIENT_SECRET")),
-        _TOKEN_VERIFIER is not None,
+        bool(os.getenv("MCP_BEARER_TOKEN", "").strip()),
     )
 
-    mcp.run(transport=transport)
+    if transport == "streamable-http":
+        import uvicorn
+
+        app = _guard_mcp_endpoint(mcp.streamable_http_app())
+        uvicorn.run(
+            app,
+            host=mcp.settings.host,
+            port=mcp.settings.port,
+            log_level=_log_level().lower(),
+        )
+    else:
+        mcp.run(transport=transport)
 
 
 if __name__ == "__main__":
