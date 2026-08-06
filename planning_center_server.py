@@ -1198,6 +1198,9 @@ ROSTER_DEACON_IDS = frozenset({
     "118245006",  # Zach Lewis
 })
 
+# Services teams to hide entirely from the roster and all counts.
+ROSTER_EXCLUDED_TEAMS = frozenset({"Bellicose Parenting Conference: All Assignments"})
+
 ROSTER_WINDOWS = (30, 60, 90)
 
 
@@ -1316,6 +1319,8 @@ async def _build_roster_payload() -> dict[str, Any]:
     for team in teams_raw:
         attrs = _attributes(team)
         team_name = (attrs.get("name") or "").strip() or "(Unnamed team)"
+        if team_name in ROSTER_EXCLUDED_TEAMS:
+            continue
         rel = team.get("relationships", {}) if isinstance(team.get("relationships"), dict) else {}
         rel_people = rel.get("people", {}) if isinstance(rel.get("people"), dict) else {}
         member_refs = rel_people.get("data", []) if isinstance(rel_people.get("data"), list) else []
