@@ -1199,7 +1199,12 @@ ROSTER_DEACON_IDS = frozenset({
 })
 
 # Services teams to hide entirely from the roster and all counts.
-ROSTER_EXCLUDED_TEAMS = frozenset({"Bellicose Parenting Conference: All Assignments"})
+ROSTER_EXCLUDED_TEAMS = frozenset({
+    "Bellicose Parenting Conference: All Assignments",
+    "Teachers",
+    "Children's Ministry",
+    "Hosting Lead Partners",
+})
 
 ROSTER_WINDOWS = (30, 60, 90)
 
