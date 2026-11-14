@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "planning-center-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "routes": [{ "pattern": "pco.bellicosechurch.org", "custom_domain": true }],
+  "kv_namespaces": [
+    // Replace with real IDs from `wrangler kv namespace create OAUTH_KV` / `ROSTER_KV`.
+    { "binding": "OAUTH_KV", "id": "00000000000000000000000000000001" },
+    { "binding": "ROSTER_KV", "id": "00000000000000000000000000000002" }
+  ],
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "observability": { "enabled": true },
+  "vars": {
+    "PUBLIC_URL": "https://pco.bellicosechurch.org",
+    "PCO_OAUTH_SCOPES": "openid people services groups calendar check_ins registrations publishing",
+    "PCO_ORG_ID": "",
+    "ROSTER_LEAD_GROUP": "Lead Partners",
+    "ROSTER_ELDERS_LIST": "Elders",
+    "ROSTER_DEACONS_LIST": "Deacons",
+    "ROSTER_EXCLUDED_TEAMS": "[\"Bellicose Parenting Conference: All Assignments\",\"Teachers\",\"Children's Ministry\",\"Hosting Lead Partners\"]"
+  }
+  // Secrets (wrangler secret put): PCO_PAT_ID, PCO_PAT_SECRET, PCO_OAUTH_CLIENT_ID,
+  // PCO_OAUTH_CLIENT_SECRET, CONSENT_SECRET, ROSTER_PIN, ROSTER_COOKIE_SECRET, MCP_BEARER_TOKEN
+}
