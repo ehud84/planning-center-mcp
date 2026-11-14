@@ -6,6 +6,8 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#17191b">
 <meta name="apple-mobile-web-app-title" content="Roster">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Raleway:wght@600;800&family=Roboto:wght@400;500;700&display=swap" media="print" onload="this.media='all'">
 <style>
 :root{color-scheme:light;--bg:#f4f5f7;--card:#fff;--line:#e4e7ec;--line2:#d0d5dd;--ink:#101828;--ink2:#344054;--mute:#667085;--faint:#98a2b3;--brand:#17191b;--accent:#2f5bd3;--accent-soft:#eef3ff}
 *{box-sizing:border-box}
@@ -29,29 +31,57 @@ button.logout{background:none;cursor:pointer;font-family:inherit}
 .ex-note{font-size:11.5px;color:var(--mute);padding:6px 10px 4px;border-top:1px solid var(--line);margin-top:4px;white-space:normal}
 .report{display:none}
 @media print{
-  @page{size:landscape;margin:10mm}
-  body{background:#fff}
+  @page{size:letter landscape;margin:11mm 11mm 14mm;@bottom-left{content:"Bellicose Church  ·  Partner Serving Review  ·  Confidential, for elder review only";font:7.5pt Roboto,Helvetica,Arial,sans-serif;color:#98a2b3}@bottom-right{content:"Page " counter(page) " of " counter(pages);font:7.5pt Roboto,Helvetica,Arial,sans-serif;color:#667085}}
+  html,body{background:#fff!important}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body>*:not(.report){display:none!important}
-  .report{display:block;color:#000;font-size:9.5pt}
-  .report h1{font-size:15pt;margin:0}
-  .report .rmeta{color:#444;margin:2px 0 10px;font-size:9pt}
-  .report h2{font-size:11pt;margin:14px 0 6px;break-after:avoid}
-  .report table{width:100%;border-collapse:collapse;table-layout:fixed}
-  .report th.n{text-align:right}
-  .report th:nth-last-child(2),.report td.flag{padding-left:10px}
-  .report .sign{display:flex;gap:28px;margin:4px 0 10px;font-size:9.5pt}
-  .report .sign span{display:inline-block;border-bottom:.75pt solid #000;width:170px;margin-left:6px}
+  .report{display:block;color:#1d2433;font:9pt/1.35 Roboto,Helvetica,Arial,sans-serif}
+  .r-band{display:flex;align-items:center;gap:14px;background:#17191b;color:#fff;border-radius:10px;padding:14px 18px;position:relative;overflow:hidden}
+  .r-band::after{content:"";position:absolute;right:-60px;top:-80px;width:260px;height:260px;border-radius:50%;background:radial-gradient(closest-side,rgba(122,162,255,.35),transparent)}
+  .r-band svg{width:42px;height:42px;flex:none;border-radius:10px;box-shadow:0 0 0 1px rgba(255,255,255,.15)}
+  .r-band .k{font:600 7.5pt Raleway,Roboto,sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#9fb6f5}
+  .r-band h1{font:800 19pt/1.1 Raleway,Roboto,sans-serif;margin:2px 0 0;letter-spacing:-.01em}
+  .r-band .side{margin-left:auto;text-align:right;font-size:8.5pt;color:rgba(255,255,255,.75);position:relative;z-index:1}
+  .r-band .side b{color:#fff;font-weight:500}
+  .r-sub{display:flex;justify-content:space-between;align-items:flex-end;margin:10px 2px 12px;gap:20px}
+  .r-sub .filters{color:#475467;font-size:8.5pt}
+  .r-sign{display:flex;gap:22px;font-size:8.5pt;color:#475467;white-space:nowrap}
+  .r-sign span{display:inline-block;border-bottom:.75pt solid #98a2b3;width:150px;margin-left:6px}
+  .r-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+  .r-kpi{border:1px solid #e4e7ec;border-left:4px solid #2f5bd3;border-radius:8px;padding:8px 12px;background:#f8f9fb}
+  .r-kpi b{display:block;font:800 18pt/1 Raleway,Roboto,sans-serif;color:#17191b}
+  .r-kpi span{color:#475467;font-size:8pt}
+  .r-kpi.red{border-left-color:#d92d20}.r-kpi.amber{border-left-color:#f79009}.r-kpi.gray{border-left-color:#98a2b3}
+  .r-h{font:800 11pt Raleway,Roboto,sans-serif;color:#17191b;margin:14px 0 6px;display:flex;align-items:center;gap:8px;break-after:avoid}
+  .r-h::before{content:"";width:4px;height:14px;border-radius:2px;background:#2f5bd3}
+  .r-h small{font:400 8.5pt Roboto,sans-serif;color:#667085}
+  .r-heads{border:1px solid #f4c7c3;background:#fff8f7;border-radius:8px;padding:8px 12px;columns:2;column-gap:28px;break-inside:avoid}
+  .r-heads div{break-inside:avoid;padding:2px 0;display:flex;gap:7px;align-items:baseline}
+  .r-heads i{width:7px;height:7px;border-radius:50%;flex:none;transform:translateY(-1px)}
+  .r-heads i.d{background:#d92d20}.r-heads i.s{background:#f79009}.r-heads i.x{background:#7a5af8}
+  .r-heads .w{color:#475467}
+  .report table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed}
   .report thead{display:table-header-group}
   .report tr{break-inside:avoid}
-  .report th{text-align:left;font-size:8pt;text-transform:uppercase;letter-spacing:.03em;color:#333;border-bottom:1.5pt solid #000;padding:4px 5px}
-  .report td{border-bottom:.5pt solid #bbb;padding:5px;vertical-align:top}
+  .report th{text-align:left;font:500 7pt Roboto,sans-serif;text-transform:uppercase;letter-spacing:.06em;color:#fff;background:#17191b;padding:6px 6px}
+  .report th:first-child{border-radius:6px 0 0 6px}.report th:last-child{border-radius:0 6px 6px 0}
+  .report th.n{text-align:right}
+  .report td{padding:6px;border-bottom:.5pt solid #e4e7ec;vertical-align:top}
+  .report tbody tr:nth-child(even) td{background:#f8f9fb}
   .report td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .report td.box{font-size:12pt}
-  .report .muted{color:#666}
-  .report .flag{font-weight:600}
-  .report ul{margin:0;padding-left:16px}
-  .report .stats{display:flex;gap:18px;margin-bottom:6px}
-  .report .stats b{font-size:13pt;display:block}
+  .report td.n.zero{color:#d92d20;font-weight:700}
+  .report td.n.cur{font-weight:700;color:#17191b}
+  .report .name{font-weight:700;color:#17191b}
+  .report .role{display:inline-block;font-size:7pt;font-weight:500;border-radius:4px;padding:0 4px;margin:1px 2px 0 0;background:#eef3ff;color:#1f3f99}
+  .report .role.lead{background:#fff6d6;color:#855c06}
+  .report .muted{color:#98a2b3;font-style:italic}
+  .report .flag{color:#b42318;font-weight:500}
+  .report td.box{padding-top:5px}
+  .report td.box span{display:block;width:10px;height:10px;border:1pt solid #667085;border-radius:2px}
+  .report td.notes{border-left:.5pt solid #e4e7ec}
+  .report .bar{display:inline-block;vertical-align:middle;height:6px;border-radius:3px;background:#e4e7ec;width:60px;margin-left:6px;overflow:hidden}
+  .report .bar i{display:block;height:100%;background:#2f5bd3}
+  .report .bar.warn i{background:#f79009}
 }
 .wrap{max-width:860px;margin:0 auto;padding:14px 16px calc(env(safe-area-inset-bottom) + 48px)}
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
@@ -547,21 +577,30 @@ ${p.url?`<a class="sh-pco" href="${esc(p.url)}" target="_blank" rel="noopener">O
     const {rows,filters}=exportSet();
     $("ex-note").textContent=`${rows.length} partner${rows.length===1?"":"s"}`+(filters.length?` · ${filters.join(" · ")}`:" · everyone")+". Change filters to narrow it.";
   }
+  const LOGO=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"> <rect width="64" height="64" rx="14" fill="#17191b"/> <circle cx="41" cy="22" r="6.5" fill="#7aa2ff"/> <path d="M29 47c0-7.5 5.4-12.5 12-12.5S53 39.5 53 47v1.5H29z" fill="#7aa2ff"/> <g fill="#fff" stroke="#17191b" stroke-width="3" paint-order="stroke">  <circle cx="24" cy="25" r="7.5"/>  <path d="M10 50c0-8.6 6.3-14 14-14s14 5.4 14 14v1.5H10z"/> </g></svg>`;
   function buildReport(){
     const {rows,filters}=exportSet();
     const gen=new Date((DATA.generated_at||0)*1000);
-    const heads=rows.map(p=>({p,t:flagText(stats(p))})).filter(x=>x.t);
-    const table=`<table><colgroup><col style="width:3%"><col style="width:12%"><col style="width:8%"><col style="width:14%"><col style="width:4%"><col style="width:4%"><col style="width:4%"><col style="width:9%"><col style="width:7%"><col style="width:6%"><col style="width:11%"><col style="width:18%"></colgroup><thead><tr><th></th><th>Name</th><th>Role</th><th>Teams</th>${DATA.windows.map(w=>`<th class="n">${w}d</th>`).join("")}<th class="n">Last served</th><th class="n">Declined</th><th class="n">Pending</th><th>Flags</th><th>Notes</th></tr></thead><tbody>`+
-      rows.map(p=>{const st=stats(p);return `<tr><td class="box">☐</td><td><b>${esc(p.name)}</b></td><td>${esc(roleText(p))}</td><td>${esc(p.teams.join(", "))||'<span class="muted">No team</span>'}</td>${DATA.windows.map(w=>`<td class="n">${(p.serves&&p.serves["d"+w])||0}</td>`).join("")}<td class="n">${esc(lastText(st))}</td><td class="n">${st.declines||""}</td><td class="n">${st.pending||""}</td><td class="flag">${esc(flagText(st))}</td><td class="notes"></td></tr>`;}).join("")+`</tbody></table>`;
-    const teamRows=DATA.teams.filter(t=>selected.has(t.name)).map(t=>{const m=t.members.filter(leadOK), c=m.map(SV), tot=c.reduce((a,b)=>a+b,0), top=c.slice().sort((a,b)=>b-a).slice(0,3).reduce((a,b)=>a+b,0);
-      return `<tr><td><b>${esc(t.name)}</b></td><td class="n">${m.length}</td><td class="n">${m.length?(tot/m.length).toFixed(1):"–"}</td><td class="n">${c.filter(x=>x===0).length}</td><td class="n">${m.length>3&&tot?Math.round(top/tot*100)+"%":"–"}</td><td class="notes"></td></tr>`;}).join("");
-    $("report").innerHTML=`<h1>Partner Serving Review · Bellicose Church</h1>
-<div class="rmeta">Serving window: last ${win} days (declines counted in the same window) · ${filters.length?"Filtered: "+esc(filters.join(" · ")):"All Partners"} · Data from Planning Center, ${esc(gen.toLocaleString([], {month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}))}</div>
-<div class="sign"><div>Reviewed by<span></span></div><div>Date<span></span></div></div>
-<div class="stats"><div><b>${rows.length}</b>Partners</div><div><b>${rows.filter(p=>SV(p)===0).length}</b>0 serves in ${win}d</div><div><b>${heads.length}</b>flagged</div><div><b>${rows.filter(p=>!p.teams.length).length}</b>no team</div></div>
-${heads.length?`<h2>Heads up</h2><ul>${heads.map(x=>`<li><b>${esc(x.p.name)}</b> — ${esc(x.t)}</li>`).join("")}</ul>`:""}
-<h2>Partners (${rows.length})</h2>${table}
-<h2>Team health · last ${win} days</h2><table><colgroup><col style="width:18%"><col style="width:9%"><col style="width:10%"><col style="width:9%"><col style="width:10%"><col style="width:44%"></colgroup><thead><tr><th>Team</th><th class="n">Partners</th><th class="n">Avg serves</th><th class="n">Inactive</th><th class="n">Top 3 share</th><th>Notes</th></tr></thead><tbody>${teamRows}</tbody></table>`;
+    const genText=gen.toLocaleString([], {month:"long",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
+    const heads=[];
+    rows.forEach(p=>{const st=stats(p);
+      st.doubles.forEach(x=>heads.push({p,c:"d",t:"Double-booked "+fmtDay(x.date)}));
+      if(st.streak>=STREAK_FLAG) heads.push({p,c:"s",t:st.streak+" weeks in a row"});
+      if(st.declines>=DECLINE_FLAG) heads.push({p,c:"x",t:st.declines+" declines in "+win+" days"});
+    });
+    const roles=p=>(p.lead?'<span class="role lead">Lead</span>':"")+(p.elder?'<span class="role">Elder</span>':"")+(p.deacon?'<span class="role">Deacon</span>':"");
+    const num=(v,cur)=>`<td class="n${v===0?" zero":cur?" cur":""}">${v}</td>`;
+    const table=`<table><colgroup><col style="width:2.5%"><col style="width:14%"><col style="width:14%"><col style="width:4%"><col style="width:4%"><col style="width:4%"><col style="width:9%"><col style="width:6.5%"><col style="width:6%"><col style="width:12%"><col style="width:24%"></colgroup><thead><tr><th></th><th>Partner</th><th>Teams</th>${DATA.windows.map(w=>`<th class="n">${w}d</th>`).join("")}<th class="n">Last served</th><th class="n">Declined</th><th class="n">Pending</th><th>Flags</th><th>Notes</th></tr></thead><tbody>`+
+      rows.map(p=>{const st=stats(p);return `<tr><td class="box"><span></span></td><td><div class="name">${esc(p.name)}</div>${roles(p)}</td><td>${esc(p.teams.join(", "))||'<span class="muted">No team</span>'}</td>${DATA.windows.map(w=>num((p.serves&&p.serves["d"+w])||0,w===win)).join("")}<td class="n">${esc(lastText(st))}</td><td class="n">${st.declines||""}</td><td class="n">${st.pending||""}</td><td class="flag">${esc(flagText(st))}</td><td class="notes"></td></tr>`;}).join("")+`</tbody></table>`;
+    const teams=DATA.teams.filter(t=>selected.has(t.name)).map(t=>{const m=t.members.filter(leadOK), c=m.map(SV), tot=c.reduce((a,b)=>a+b,0);return {t,m,c,tot,avg:m.length?tot/m.length:0,inactive:c.filter(x=>x===0).length,top:m.length>3&&tot?Math.round(c.slice().sort((a,b)=>b-a).slice(0,3).reduce((a,b)=>a+b,0)/tot*100):null};});
+    const maxAvg=Math.max(1,...teams.map(x=>x.avg));
+    const teamRows=teams.map(x=>`<tr><td class="name">${esc(x.t.name)}</td><td class="n">${x.m.length}</td><td class="n">${x.m.length?x.avg.toFixed(1):"–"}<span class="bar"><i style="width:${x.avg/maxAvg*100}%"></i></span></td><td class="n${x.inactive?" zero":""}">${x.inactive}</td><td class="n">${x.top==null?"–":x.top+"%"}${x.top==null?"":`<span class="bar${x.top>=50?" warn":""}"><i style="width:${x.top}%"></i></span>`}</td><td class="notes"></td></tr>`).join("");
+    $("report").innerHTML=`<div class="r-band">${LOGO}<div><div class="k">Bellicose Church · Elder Review</div><h1>Partner Serving Review</h1></div><div class="side">Serving window <b>last ${win} days</b><br>Planning Center data as of <b>${esc(genText)}</b></div></div>
+<div class="r-sub"><div class="filters">${filters.length?"Showing: "+esc(filters.join(" · ")):"Showing all Partners"} · sorted by last name</div><div class="r-sign"><div>Reviewed by<span></span></div><div>Date<span></span></div></div></div>
+<div class="r-kpis"><div class="r-kpi"><b>${rows.length}</b><span>Partners in this review</span></div><div class="r-kpi red"><b>${rows.filter(p=>SV(p)===0).length}</b><span>Not served in ${win} days</span></div><div class="r-kpi amber"><b>${new Set(heads.map(h=>h.p.id)).size}</b><span>Flagged for attention</span></div><div class="r-kpi gray"><b>${rows.filter(p=>!p.teams.length).length}</b><span>Not on a team</span></div></div>
+${heads.length?`<div class="r-h">Heads up <small>double-booked · ${STREAK_FLAG}+ weeks in a row · ${DECLINE_FLAG}+ declines</small></div><div class="r-heads">${heads.map(h=>`<div><i class="${h.c}"></i><span><b>${esc(h.p.name)}</b> <span class="w">${esc(h.t)}</span></span></div>`).join("")}</div>`:""}
+<div class="r-h">Partners <small>${rows.length} · current window in bold · 0 in red</small></div>${table}
+<div class="r-h" style="break-before:page">Team health <small>last ${win} days · Partners only</small></div><table><colgroup><col style="width:20%"><col style="width:9%"><col style="width:16%"><col style="width:9%"><col style="width:16%"><col style="width:30%"></colgroup><thead><tr><th>Team</th><th class="n">Partners</th><th class="n">Avg serves</th><th class="n">Inactive</th><th class="n">Top 3 share</th><th>Notes</th></tr></thead><tbody>${teamRows}</tbody></table>`;
   }
   function downloadCsv(){
     const {rows}=exportSet();
@@ -574,7 +613,7 @@ ${heads.length?`<h2>Heads up</h2><ul>${heads.map(x=>`<li><b>${esc(x.p.name)}</b>
   }
   $("exportbtn").addEventListener("click",e=>{e.stopPropagation();const m=$("exportmenu");m.hidden=!m.hidden;if(!m.hidden)updateExportNote();});
   document.addEventListener("click",e=>{ if(!$("exportmenu").contains(e.target)) $("exportmenu").hidden=true; });
-  $("ex-print").addEventListener("click",()=>{$("exportmenu").hidden=true;buildReport();window.print();});
+  $("ex-print").addEventListener("click",async()=>{$("exportmenu").hidden=true;buildReport();try{await document.fonts.ready;}catch{} window.print();});
   $("ex-csv").addEventListener("click",()=>{$("exportmenu").hidden=true;downloadCsv();});
   addEventListener("beforeprint",buildReport);
   const ctl=$("controls");
