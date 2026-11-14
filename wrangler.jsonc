@@ -1,14 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "planning-center-mcp",
+  "account_id": "55c94d35c24b4d0b590982a76c23d01a",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "routes": [{ "pattern": "pco.bellicosechurch.org", "custom_domain": true }],
   "kv_namespaces": [
-    // Replace with real IDs from `wrangler kv namespace create OAUTH_KV` / `ROSTER_KV`.
-    { "binding": "OAUTH_KV", "id": "00000000000000000000000000000001" },
-    { "binding": "ROSTER_KV", "id": "00000000000000000000000000000002" }
+    { "binding": "OAUTH_KV", "id": "36c4483f6f8e455f89f5c3cff19b30fd" },
+    { "binding": "ROSTER_KV", "id": "ff0e25b8e4e34d74af3f4fe5c924d7a0" }
   ],
   "triggers": { "crons": ["*/15 * * * *"] },
   "observability": { "enabled": true },
