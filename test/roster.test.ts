@@ -60,7 +60,7 @@ describe("buildRosterPayload", () => {
   it("matches the Python roster semantics", async () => {
     mockPco();
     const payload = await buildRosterPayload(
-      new PcoClient({ kind: "basic", id: "x", secret: "y" }),
+      new PcoClient("x", "y"),
       { leadGroup: "Lead Partners", eldersList: "Elders", deaconsList: "Deacons", excludedTeams: new Set(["Teachers"]) },
       NOW,
     );
@@ -85,7 +85,7 @@ describe("buildRosterPayload", () => {
     ROUTES["/people/v2/people"] = doc([{ type: "Person", id: "88545253", attributes: { name: "Josh Ruff", last_name: "Ruff" } }]);
     mockPco();
     const payload = await buildRosterPayload(
-      new PcoClient({ kind: "basic", id: "x", secret: "y" }),
+      new PcoClient("x", "y"),
       { leadGroup: "Lead Partners", eldersList: "Elders", deaconsList: "Deacons", excludedTeams: new Set() },
       NOW,
     );
@@ -103,14 +103,14 @@ describe("PcoClient", () => {
       const data = Array.from({ length: offset === 0 ? 100 : 30 }, (_, i) => ({ type: "Person", id: String(offset + i) }));
       return Response.json({ data, meta: { total_count: 130 } });
     });
-    const { data } = await new PcoClient({ kind: "bearer", token: "t" }).getAll("people", "people");
+    const { data } = await new PcoClient("x", "y").getAll("people", "people");
     expect(data).toHaveLength(130);
     expect(calls).toBe(3);
   });
 
   it("maps API errors to readable messages", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ errors: [{ detail: "nope" }] }, { status: 403 }));
-    await expect(new PcoClient({ kind: "bearer", token: "t" }).get("people", "people")).rejects.toThrow(/denied access.*nope/);
+    await expect(new PcoClient("x", "y").get("people", "people")).rejects.toThrow(/denied access.*nope/);
   });
 });
 

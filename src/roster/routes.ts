@@ -7,17 +7,14 @@ const COOKIE = "pco_roster_auth";
 const COOKIE_TTL = 12 * 60 * 60;
 const KV_KEY = "roster:v1";
 
-export function patClient(env: Env) {
-  return new PcoClient({ kind: "basic", id: env.PCO_PAT_ID, secret: env.PCO_PAT_SECRET });
-}
-
 export async function refreshRoster(env: Env): Promise<RosterPayload> {
-  const payload = await buildRosterPayload(patClient(env), rosterConfig(env));
+  const pco = new PcoClient(env.PCO_CLIENT_ID, env.PCO_CLIENT_SECRET);
+  const payload = await buildRosterPayload(pco, rosterConfig(env));
   await env.ROSTER_KV.put(KV_KEY, JSON.stringify(payload));
   return payload;
 }
 
-export async function getRoster(env: Env): Promise<RosterPayload> {
+async function getRoster(env: Env): Promise<RosterPayload> {
   return (await env.ROSTER_KV.get<RosterPayload>(KV_KEY, "json")) ?? refreshRoster(env);
 }
 
@@ -94,7 +91,7 @@ async function hmacHex(secret: string, message: string): Promise<string> {
 }
 
 // Without an explicit secret, derive one from server-only values so cookies survive deploys.
-const cookieSecret = (env: Env) => env.ROSTER_COOKIE_SECRET?.trim() || `roster|${env.ROSTER_PIN}|${env.PCO_PAT_SECRET}`;
+const cookieSecret = (env: Env) => env.ROSTER_COOKIE_SECRET?.trim() || `roster|${env.ROSTER_PIN}|${env.PCO_CLIENT_SECRET}`;
 
 export async function makeCookie(env: Env, now = Date.now()): Promise<string> {
   const expires = String(Math.floor(now / 1000) + COOKIE_TTL);

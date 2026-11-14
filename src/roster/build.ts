@@ -29,7 +29,7 @@ export interface RosterConfig {
   excludedTeams: Set<string>;
 }
 
-// Used until PCO Lists with the configured names exist and are visible to the PAT user.
+// Used until PCO Lists with the configured names exist and are visible to the API token's user.
 const FALLBACK_ELDER_IDS = ["89892975", "87899362", "88547242", "87899240", "88546412"];
 const FALLBACK_DEACON_IDS = [
   "88547391", "102716821", "88837041", "88462936", "88546769", "88837038", "88843218",

@@ -1,23 +1,9 @@
 # Copy to .dev.vars for `wrangler dev`. In production use `wrangler secret put <NAME>`.
 
-# Planning Center Personal Access Token: used by the roster cron and MCP_BEARER_TOKEN clients.
-PCO_PAT_ID=
-PCO_PAT_SECRET=
+# Planning Center Personal Access Token (same values as Railway's PCO_CLIENT_ID / PCO_CLIENT_SECRET).
+PCO_CLIENT_ID=
+PCO_CLIENT_SECRET=
 
-# Planning Center OAuth app (api.planningcenteronline.com/oauth/applications).
-# Redirect URI: https://pco.bellicosechurch.org/callback (and http://localhost:8787/callback for dev)
-PCO_OAUTH_CLIENT_ID=
-PCO_OAUTH_CLIENT_SECRET=
-
-# 32+ random characters; signs remembered-consent cookies.
-CONSENT_SECRET=
-
-# Optional static bearer for direct/API MCP clients (acts as the PAT user).
-MCP_BEARER_TOKEN=
-
-# Mobile roster page.
+# Roster page PIN, and the secret that signs the login cookie.
 ROSTER_PIN=1234
-ROSTER_COOKIE_SECRET=
-
-# Local dev: matches the OAuth app redirect http://localhost:8787/callback
-PUBLIC_URL=http://localhost:8787
+ROSTER_COOKIE_SECRET=dev
