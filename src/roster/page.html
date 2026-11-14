@@ -16,9 +16,43 @@ button,select,input{font-family:inherit}
 .logo{width:34px;height:34px;border-radius:9px;flex:none;box-shadow:0 0 0 1px rgba(255,255,255,.12)}
 .ttl{flex:1;min-width:0}
 h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
-.sub{color:rgba(255,255,255,.62);font-size:12px;margin:2px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub{color:rgba(255,255,255,.62);font-size:12px;margin:2px 0 0}
+@media (max-width:420px){.hdr .logout{padding:6px 8px}.hdr-in{gap:10px}}
 .logout{font-size:12px;font-weight:600;color:rgba(255,255,255,.8);text-decoration:none;border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:6px 10px;flex:none}
 .logout:hover{background:rgba(255,255,255,.08)}
+button.logout{background:none;cursor:pointer;font-family:inherit}
+.exp{position:relative;flex:none}
+.exp .ddpanel{left:auto;right:0;top:calc(100% + 8px);width:min(270px,calc(100vw - 32px));overflow:visible;color:var(--ink)}
+.mi.ex::before{display:none}
+.mi.ex{white-space:normal}
+.mi.ex span{width:18px;text-align:center}
+.ex-note{font-size:11.5px;color:var(--mute);padding:6px 10px 4px;border-top:1px solid var(--line);margin-top:4px;white-space:normal}
+.report{display:none}
+@media print{
+  @page{size:landscape;margin:10mm}
+  body{background:#fff}
+  body>*:not(.report){display:none!important}
+  .report{display:block;color:#000;font-size:9.5pt}
+  .report h1{font-size:15pt;margin:0}
+  .report .rmeta{color:#444;margin:2px 0 10px;font-size:9pt}
+  .report h2{font-size:11pt;margin:14px 0 6px;break-after:avoid}
+  .report table{width:100%;border-collapse:collapse;table-layout:fixed}
+  .report th.n{text-align:right}
+  .report th:nth-last-child(2),.report td.flag{padding-left:10px}
+  .report .sign{display:flex;gap:28px;margin:4px 0 10px;font-size:9.5pt}
+  .report .sign span{display:inline-block;border-bottom:.75pt solid #000;width:170px;margin-left:6px}
+  .report thead{display:table-header-group}
+  .report tr{break-inside:avoid}
+  .report th{text-align:left;font-size:8pt;text-transform:uppercase;letter-spacing:.03em;color:#333;border-bottom:1.5pt solid #000;padding:4px 5px}
+  .report td{border-bottom:.5pt solid #bbb;padding:5px;vertical-align:top}
+  .report td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .report td.box{font-size:12pt}
+  .report .muted{color:#666}
+  .report .flag{font-weight:600}
+  .report ul{margin:0;padding-left:16px}
+  .report .stats{display:flex;gap:18px;margin-bottom:6px}
+  .report .stats b{font-size:13pt;display:block}
+}
 .wrap{max-width:860px;margin:0 auto;padding:14px 16px calc(env(safe-area-inset-bottom) + 48px)}
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
@@ -169,6 +203,14 @@ body.noscroll{overflow:hidden}
 <header class="hdr"><div class="hdr-in">
 <img class="logo" src="/favicon.svg" alt="" width="34" height="34">
 <div class="ttl"><h1>Team Roster</h1><p class="sub" id="sub">Loading…</p></div>
+<div class="exp">
+<button type="button" class="logout" id="exportbtn" aria-haspopup="menu">Export</button>
+<div class="ddpanel menu" id="exportmenu" role="menu" hidden>
+<button type="button" class="mi ex" id="ex-print" role="menuitem"><span>🖨</span>Print / Save as PDF</button>
+<button type="button" class="mi ex" id="ex-csv" role="menuitem"><span>⬇</span>Download spreadsheet (CSV)</button>
+<div class="ex-note" id="ex-note"></div>
+</div>
+</div>
 <a class="logout" id="logout" href="/roster/logout">Log out</a>
 </div></header>
 <div class="wrap">
@@ -227,6 +269,7 @@ body.noscroll{overflow:hidden}
 <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sh-name" id="sheet-card"></div>
 </div>
 </div>
+<div class="report" id="report" aria-hidden="true"></div>
 <script>
 function initRoster(DATA){
   const $=id=>document.getElementById(id);
@@ -323,9 +366,12 @@ function initRoster(DATA){
     $("sub").textContent="Bellicose Church · updated "+(today?"":d.toLocaleDateString([], {month:"short",day:"numeric"})+", ")+d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
   }
 
-  function renderPeople(){
+  function filteredPeople(){
     const q=query.toLowerCase();
-    let rows=mainList().filter(p=> popOK(p) && (!zeroOnly||SV(p)===0) && (!flagOnly||stats(p).flagged) && (!q || p.name.toLowerCase().includes(q) || p.teams.some(t=>t.toLowerCase().includes(q))) );
+    return mainList().filter(p=> popOK(p) && (!zeroOnly||SV(p)===0) && (!flagOnly||stats(p).flagged) && (!q || p.name.toLowerCase().includes(q) || p.teams.some(t=>t.toLowerCase().includes(q))) );
+  }
+  function renderPeople(){
+    let rows=filteredPeople();
     rows.sort(cmpPeople);
     $("hint").textContent=rows.length+" of "+(DATA.people.length+(DATA.partners_no_team||[]).length)+" partners"+(zeroOnly?" · 0 serves in "+win+"d":"")+(flagOnly?" · flagged":"");
     $("list").innerHTML=rows.length?rows.map(p=>personCard(p,true)).join(""):'<div class="empty">No matches.</div>';
@@ -482,6 +528,55 @@ ${p.url?`<a class="sh-pco" href="${esc(p.url)}" target="_blank" rel="noopener">O
   $("sheet-card").addEventListener("click",e=>{ if(e.target.closest("#sheet-x")) requestClose(); });
   document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&!$("sheet").hidden) requestClose(); });
   onHash();
+  // ---- Export: printable review sheet and CSV of the currently filtered Partners ----
+  const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const roleText=p=>[p.lead&&"Lead Partner",p.elder&&"Elder",p.deacon&&"Deacon"].filter(Boolean).join(", ");
+  const flagText=st=>[...st.doubles.map(x=>"Double-booked "+fmtDay(x.date)),st.streak>=STREAK_FLAG&&st.streak+" weeks in a row",st.declines>=DECLINE_FLAG&&st.declines+" declines"].filter(Boolean).join("; ");
+  const lastText=st=>st.last?st.last.toLocaleDateString([], {month:"short",day:"numeric"})+` (${st.gap}d)`:"90+ days";
+  function exportSet(){
+    const rows=filteredPeople().sort(byName);
+    const f=[];
+    if(selected.size!==DATA.teams.length) f.push(`teams: ${[...selected].join(", ")||"none"}`);
+    if(leadMode!=="all") f.push($("leadsel").options[$("leadsel").selectedIndex].text.toLowerCase());
+    if(zeroOnly) f.push(`0 serves in ${win} days`);
+    if(flagOnly) f.push("flagged only");
+    if(query) f.push(`search “${query}”`);
+    return {rows,filters:f};
+  }
+  function updateExportNote(){
+    const {rows,filters}=exportSet();
+    $("ex-note").textContent=`${rows.length} partner${rows.length===1?"":"s"}`+(filters.length?` · ${filters.join(" · ")}`:" · everyone")+". Change filters to narrow it.";
+  }
+  function buildReport(){
+    const {rows,filters}=exportSet();
+    const gen=new Date((DATA.generated_at||0)*1000);
+    const heads=rows.map(p=>({p,t:flagText(stats(p))})).filter(x=>x.t);
+    const table=`<table><colgroup><col style="width:3%"><col style="width:12%"><col style="width:8%"><col style="width:14%"><col style="width:4%"><col style="width:4%"><col style="width:4%"><col style="width:9%"><col style="width:7%"><col style="width:6%"><col style="width:11%"><col style="width:18%"></colgroup><thead><tr><th></th><th>Name</th><th>Role</th><th>Teams</th>${DATA.windows.map(w=>`<th class="n">${w}d</th>`).join("")}<th class="n">Last served</th><th class="n">Declined</th><th class="n">Pending</th><th>Flags</th><th>Notes</th></tr></thead><tbody>`+
+      rows.map(p=>{const st=stats(p);return `<tr><td class="box">☐</td><td><b>${esc(p.name)}</b></td><td>${esc(roleText(p))}</td><td>${esc(p.teams.join(", "))||'<span class="muted">No team</span>'}</td>${DATA.windows.map(w=>`<td class="n">${(p.serves&&p.serves["d"+w])||0}</td>`).join("")}<td class="n">${esc(lastText(st))}</td><td class="n">${st.declines||""}</td><td class="n">${st.pending||""}</td><td class="flag">${esc(flagText(st))}</td><td class="notes"></td></tr>`;}).join("")+`</tbody></table>`;
+    const teamRows=DATA.teams.filter(t=>selected.has(t.name)).map(t=>{const m=t.members.filter(leadOK), c=m.map(SV), tot=c.reduce((a,b)=>a+b,0), top=c.slice().sort((a,b)=>b-a).slice(0,3).reduce((a,b)=>a+b,0);
+      return `<tr><td><b>${esc(t.name)}</b></td><td class="n">${m.length}</td><td class="n">${m.length?(tot/m.length).toFixed(1):"–"}</td><td class="n">${c.filter(x=>x===0).length}</td><td class="n">${m.length>3&&tot?Math.round(top/tot*100)+"%":"–"}</td><td class="notes"></td></tr>`;}).join("");
+    $("report").innerHTML=`<h1>Partner Serving Review · Bellicose Church</h1>
+<div class="rmeta">Serving window: last ${win} days (declines counted in the same window) · ${filters.length?"Filtered: "+esc(filters.join(" · ")):"All Partners"} · Data from Planning Center, ${esc(gen.toLocaleString([], {month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}))}</div>
+<div class="sign"><div>Reviewed by<span></span></div><div>Date<span></span></div></div>
+<div class="stats"><div><b>${rows.length}</b>Partners</div><div><b>${rows.filter(p=>SV(p)===0).length}</b>0 serves in ${win}d</div><div><b>${heads.length}</b>flagged</div><div><b>${rows.filter(p=>!p.teams.length).length}</b>no team</div></div>
+${heads.length?`<h2>Heads up</h2><ul>${heads.map(x=>`<li><b>${esc(x.p.name)}</b> — ${esc(x.t)}</li>`).join("")}</ul>`:""}
+<h2>Partners (${rows.length})</h2>${table}
+<h2>Team health · last ${win} days</h2><table><colgroup><col style="width:18%"><col style="width:9%"><col style="width:10%"><col style="width:9%"><col style="width:10%"><col style="width:44%"></colgroup><thead><tr><th>Team</th><th class="n">Partners</th><th class="n">Avg serves</th><th class="n">Inactive</th><th class="n">Top 3 share</th><th>Notes</th></tr></thead><tbody>${teamRows}</tbody></table>`;
+  }
+  function downloadCsv(){
+    const {rows}=exportSet();
+    const cell=v=>{const t=String(v??"");return /[",\n]/.test(t)?`"${t.replace(/"/g,'""')}"`:t;};
+    const head=["Name","Role","Teams",...DATA.windows.map(w=>`Serves ${w}d`),"Last served","Days since served",`Declined (${win}d)`,"Pending requests","Longest streak (weeks)","Flags","Planning Center"];
+    const lines=rows.map(p=>{const st=stats(p);return [p.name,roleText(p),p.teams.join("; "),...DATA.windows.map(w=>(p.serves&&p.serves["d"+w])||0),st.last?ymd(st.last):"",st.gap??"",st.declines,st.pending,st.streak,flagText(st),p.url||""].map(cell).join(",");});
+    const blob=new Blob(["﻿"+[head.map(cell).join(","),...lines].join("\r\n")],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`partner-roster-${ymd(new Date())}.csv`;
+    document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
+  }
+  $("exportbtn").addEventListener("click",e=>{e.stopPropagation();const m=$("exportmenu");m.hidden=!m.hidden;if(!m.hidden)updateExportNote();});
+  document.addEventListener("click",e=>{ if(!$("exportmenu").contains(e.target)) $("exportmenu").hidden=true; });
+  $("ex-print").addEventListener("click",()=>{$("exportmenu").hidden=true;buildReport();window.print();});
+  $("ex-csv").addEventListener("click",()=>{$("exportmenu").hidden=true;downloadCsv();});
+  addEventListener("beforeprint",buildReport);
   const ctl=$("controls");
   addEventListener("scroll",()=>ctl.classList.toggle("stuck",ctl.getBoundingClientRect().top<=0),{passive:true});
   const ld=$("loading"); if(ld) ld.style.display="none";
