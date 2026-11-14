@@ -10,8 +10,8 @@ export function registerGenericTools(server: McpServer, { pco }: ToolContext) {
     {
       title: "Planning Center API (read-only)",
       description:
-        "Read any Planning Center API v2 endpoint not covered by another tool, e.g. check-ins 'events', giving " +
-        "'donations', registrations 'signups', publishing 'episodes', services 'songs', people 'workflows'. " +
+        "Read any Planning Center API v2 endpoint not covered by another tool, e.g. check-ins 'events', " +
+        "registrations 'signups', publishing 'episodes', services 'songs', people 'workflows'. " +
         "Path is relative to /{product}/v2/. Supports JSON:API params like include, where[...], filter, order, " +
         "per_page, offset, fields[Type]. Results respect your own Planning Center permissions.",
       annotations: READ_ONLY,

@@ -5,7 +5,6 @@ export const PRODUCTS = [
   "groups",
   "calendar",
   "check-ins",
-  "giving",
   "registrations",
   "publishing",
 ] as const;
