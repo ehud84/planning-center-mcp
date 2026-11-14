@@ -8,6 +8,16 @@ Services teams they serve on, and how often they were scheduled (non-declined) i
 the last 30, 60 and 90 days, with burnout/inactivity cards and filters for team,
 Lead Partners, elders and deacons.
 
+- **People / No team:** last served, declines and pending requests per Partner; sort by
+  serves, team count, name, longest gap or declines; filter to flagged people.
+- **Flags ("Heads up"):** on two teams at the same time, 4+ weeks in a row, or 2+ declines
+  in the selected window.
+- **Teams:** average serves, inactive members, and how much the top 3 carry.
+- **This week:** every plan in the next 7 days with confirmed/pending/declined people and
+  open positions.
+- **Profile** (tap a name): roles, counts, 17-week serving chart, upcoming 4 weeks,
+  90-day history including declines and their reasons, and a link to Planning Center.
+
 ## How it works
 
 - A cron trigger (every 15 minutes) pulls teams, plans, team members, Partners,

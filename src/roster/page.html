@@ -85,6 +85,43 @@ h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
 .chip a{color:var(--ink2);text-decoration:none}
 .chip .cx{color:var(--faint);margin-left:6px;font-size:11px;font-variant-numeric:tabular-nums}
 .empty{text-align:center;color:var(--faint);padding:40px}
+.meta{color:var(--mute);font-size:12.5px;margin-top:3px}
+.meta .warn{color:#b42318;font-weight:600}
+.tag.flag{color:#b42318;background:#fef0ef}
+.tag.streak{color:#a14d00;background:#fff1e3}
+.panel.heads{grid-column:1/-1;border-color:#f4c7c3;background:linear-gradient(#fff6f5,#fff)}
+.panel.heads .pv{font-weight:600;color:var(--mute);font-size:12px}
+.health{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px;font-size:12px;color:var(--mute)}
+.health b{color:var(--ink2);font-variant-numeric:tabular-nums}
+.health .bad{color:#b42318}
+.wk{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden}
+.wk-h{padding:11px 13px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center}
+.wk-h .sh-date{width:40px}
+.wk-h .t{font-weight:650}
+.wk-h .t small{display:block;color:var(--mute);font-weight:400;font-size:12.5px}
+.wk-sum{display:flex;flex-wrap:wrap;gap:6px;padding:8px 13px 0}
+.wk-team{padding:8px 13px 10px;border-top:1px solid #f2f4f7}
+.wk-team:first-of-type{border-top:0}
+.wk-tn{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.03em;margin:4px 0 4px}
+.wk-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:14px}
+.wk-row .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wk-row .who a{color:var(--ink);text-decoration:none;font-weight:600}
+.wk-row .who small{color:var(--mute);font-size:12.5px}
+.wk-row.D .who{color:var(--faint);text-decoration:line-through}
+.wk-row.open .who{color:#b42318;font-weight:600}
+.pill.D{background:#fef0ef;color:#b42318}
+.pill.open{background:#fef0ef;color:#b42318}
+.sh-alerts{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.sh-alert{background:#fff6f5;border:1px solid #f4c7c3;color:#912018;border-radius:10px;padding:8px 11px;font-size:13px}
+.sh-alert.info{background:var(--card);border-color:var(--line);color:var(--ink2)}
+.trend{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 12px 8px}
+.bars{display:flex;align-items:flex-end;gap:3px;height:56px}
+.bars i{flex:1;background:#c9d6f7;border-radius:3px 3px 0 0;min-height:2px}
+.bars i.f{background:repeating-linear-gradient(45deg,#dfe6f8 0 3px,#eef2fc 3px 6px)}
+.bars i.z{background:#eceff3}
+.bars i.now{background:var(--accent)}
+.bars-x{display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);margin-top:5px}
+.sh-row .reason{display:block;color:#b42318;font-size:12px;white-space:normal}
 body.noscroll{overflow:hidden}
 .sheet{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}
 .sheet[hidden]{display:none}
@@ -148,11 +185,12 @@ body.noscroll{overflow:hidden}
 <button type="button" data-view="people" class="active">People</button>
 <button type="button" data-view="teams">Teams</button>
 <button type="button" data-view="partners">No team</button>
+<button type="button" data-view="week">This week</button>
 </div>
 <div class="row2">
 <input class="search" id="search" type="search" placeholder="Search people or teams" autocomplete="off" enterkeyhint="search">
 </div>
-<div class="filters">
+<div class="filters" id="filters">
 <div class="dd" id="teamdd">
 <button type="button" class="ddbtn menubtn" id="ddbtn"><span>Teams</span><svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m1 1 4 4 4-4"/></svg></button>
 </div>
@@ -168,9 +206,12 @@ body.noscroll{overflow:hidden}
 <option value="serves">Serves</option>
 <option value="count">Team count</option>
 <option value="name">Name</option>
+<option value="gap">Longest gap</option>
+<option value="declines">Declines</option>
 </select>
 <button type="button" class="minibtn" id="sortdir" title="Toggle ascending / descending">↓ Desc</button>
 <button type="button" class="minibtn" id="zerobtn" title="Show only people with no serves in the window">0 serves</button>
+<button type="button" class="minibtn" id="flagbtn" title="Double-booked, long streaks, or repeated declines">⚠ Flagged</button>
 </div>
 <div class="ddpanel menu" id="menupanel" role="listbox" hidden></div>
 <div class="ddpanel" id="ddpanel" hidden>
@@ -190,7 +231,7 @@ body.noscroll{overflow:hidden}
 function initRoster(DATA){
   const $=id=>document.getElementById(id);
   const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  let view="people", query="", sortMode="serves", sortDir="desc", win=60, zeroOnly=false, leadMode="all";
+  let view="people", query="", sortMode="serves", sortDir="desc", win=60, zeroOnly=false, flagOnly=false, leadMode="all";
   const leadOK=p=>{ switch(leadMode){ case "exclude": return !(p.lead||p.elder||p.deacon); case "exelder": return !p.elder; case "exdeacon": return !(p.elder||p.deacon); default: return true; } };
   const selected=new Set(DATA.teams.map(t=>t.name));
   const byName=(a,b)=>String(a.last||a.name).toLowerCase().localeCompare(String(b.last||b.name).toLowerCase());
@@ -201,11 +242,56 @@ function initRoster(DATA){
   const teamOK=p=>p.teams.length?p.teams.some(t=>selected.has(t)):selected.size===DATA.teams.length;
   const popOK=p=>teamOK(p)&&leadOK(p);
   const mainList=()=>DATA.people.concat(noTeamPeople());
+  const SCHED=DATA.schedules||{};
+  const DAY=864e5, NOW=Date.now();
+  // Planning Center plan times are local wall-clock times labelled as UTC ("10:30Z"); read them as local.
+  const wall=d=>new Date(String(d).replace(/(Z|[+-]\d\d:?\d\d)$/,""));
+  const sched=id=>SCHED[id]||{past:[],upcoming:[]};
+  const weekIdx=d=>{const t=d instanceof Date?new Date(d):wall(d);t.setHours(0,0,0,0);t.setDate(t.getDate()-t.getDay());return Math.round(t/(7*DAY));};
+  const fmtDay=d=>wall(d).toLocaleDateString([], {weekday:"short",month:"short",day:"numeric"});
+  const fmtTime=d=>wall(d).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+  const STREAK_FLAG=4, DECLINE_FLAG=2;
+  // Per-person serving signals, cached per window (declines depend on it).
+  const statCache=new Map();
+  function stats(p){
+    const key=p.id+"|"+win; if(statCache.has(key)) return statCache.get(key);
+    const s=sched(p.id);
+    const served=s.past.filter(x=>x.status!=="D"), ahead=s.upcoming.filter(x=>x.status!=="D");
+    const last=served[0]?wall(served[0].date):null;
+    const gap=last?Math.floor((NOW-last)/DAY):null;
+    const declines=s.past.filter(x=>x.status==="D"&&NOW-wall(x.date)<=win*DAY).length;
+    const pending=s.upcoming.filter(x=>x.status==="U").length;
+    const byTime={}; ahead.forEach(x=>(byTime[x.date]=byTime[x.date]||[]).push(x));
+    // Two positions on one team is normal; two different teams at the same time is a conflict.
+    const doubles=Object.entries(byTime).filter(([,v])=>new Set(v.map(x=>x.team)).size>1).map(([date,slots])=>({date,slots:slots.filter((x,i)=>slots.findIndex(y=>y.team===x.team)===i)}));
+    const weeks=[...new Set(served.concat(ahead).map(x=>weekIdx(x.date)))].sort((a,b)=>a-b);
+    let streak=0,run=0; weeks.forEach((w,i)=>{run=(i&&w===weeks[i-1]+1)?run+1:1;streak=Math.max(streak,run);});
+    const flagged=doubles.length>0||streak>=STREAK_FLAG||declines>=DECLINE_FLAG;
+    const out={last,gap,declines,pending,doubles,streak,flagged};
+    statCache.set(key,out); return out;
+  }
+  const gapText=st=>st.last?(st.gap===0?"Served today":st.gap===1?"Last served yesterday":`Last served ${st.gap} days ago`):"Not served in 90+ days";
+  function flagTags(st){
+    return (st.doubles.length?`<span class="tag flag" title="On two teams at the same time">⚠ Double-booked</span>`:"")+
+      (st.streak>=STREAK_FLAG?`<span class="tag streak" title="Consecutive weeks serving">🔁 ${st.streak} wks straight</span>`:"");
+  }
+  function personCard(p,withChips){
+    const nm=p.id?`<a href="#p=${esc(p.id)}">${esc(p.name)}</a>`:esc(p.name);
+    const sv=SV(p), st=stats(p);
+    const tags=(p.lead?'<span class="tag lead" title="Lead Partners group">★ Lead</span>':'')+(p.elder?'<span class="tag">Elder</span>':'')+(p.deacon?'<span class="tag">Deacon</span>':'')+flagTags(st);
+    const meta=[esc(gapText(st))];
+    if(st.declines) meta.push(`<span class="${st.declines>=DECLINE_FLAG?"warn":""}">${st.declines} declined</span>`);
+    if(st.pending) meta.push(`${st.pending} pending`);
+    const chips=withChips?`<div class="chips">${p.teams.length?p.teams.map(t=>`<span class="chip${selected.has(t)?"":" off"}">${esc(t)}</span>`).join(""):'<span class="chip none">No team assignment</span>'}</div>`:"";
+    return `<div class="item"><div class="h"><span class="nm">${nm}${tags}</span><span class="badge b2${sv===0?" z":""}" title="Serves in last ${win} days">${sv}× <small>${win}d</small></span></div><div class="meta">${meta.join(" · ")}</div>${chips}</div>`;
+  }
 
   function cmpPeople(a,b){
     let d=0;
     if(sortMode==="name") d=byName(a,b);
     else if(sortMode==="count") d=a.teams.length-b.teams.length;
+    else if(sortMode==="gap") d=(stats(a).gap??1e4)-(stats(b).gap??1e4);
+    else if(sortMode==="declines") d=stats(a).declines-stats(b).declines;
     else d=SV(a)-SV(b);
     return dir()*d || byName(a,b);
   }
@@ -223,7 +309,15 @@ function initRoster(DATA){
     const inactivity=pool.slice().sort((a,b)=>(a.serves-b.serves)||(b.teams-a.teams)||a.name.localeCompare(b.name)).slice(0,5);
     const panel=(title,cls,rows)=>`<div class="panel ${cls}"><div class="pt">${title}</div>`+
       ((rows&&rows.length)?rows.map((r,i)=>`<div class="pr"><span class="pi">${i+1}</span><span class="pn">${r.id?`<a href="#p=${esc(r.id)}">${esc(r.name)}</a>`:esc(r.name)}</span><span class="pv">${r.serves}×</span></div>`).join(""):`<div class="pr"><span class="pn" style="color:#98a2b3">No data</span></div>`)+`</div>`;
-    $("risk").innerHTML=panel(`<span class="pe">🔥</span>Most serves · ${win}d`,"burn",burnout)+panel(`<span class="pe">💤</span>Fewest serves · ${win}d`,"inact",inactivity);
+    const heads=[];
+    mainList().filter(popOK).forEach(p=>{const st=stats(p);
+      st.doubles.forEach(x=>heads.push({p,rank:0,text:"Double-booked "+fmtDay(x.date)}));
+      if(st.streak>=STREAK_FLAG) heads.push({p,rank:1,n:st.streak,text:st.streak+" weeks in a row"});
+      if(st.declines>=DECLINE_FLAG) heads.push({p,rank:2,n:st.declines,text:st.declines+" declines · "+win+"d"});
+    });
+    heads.sort((a,b)=>a.rank-b.rank||(b.n||0)-(a.n||0)||a.p.name.localeCompare(b.p.name));
+    const headsHtml=heads.length?`<div class="panel heads"><div class="pt"><span class="pe">⚠️</span>Heads up · ${heads.length}</div>`+heads.slice(0,6).map(h=>`<div class="pr"><span class="pn"><a href="#p=${esc(h.p.id)}">${esc(h.p.name)}</a></span><span class="pv">${esc(h.text)}</span></div>`).join("")+(heads.length>6?`<div class="pr"><span class="pn"><a href="#" id="seeflagged">See all flagged →</a></span></div>`:"")+`</div>`:"";
+    $("risk").innerHTML=panel(`<span class="pe">🔥</span>Most serves · ${win}d`,"burn",burnout)+panel(`<span class="pe">💤</span>Fewest serves · ${win}d`,"inact",inactivity)+headsHtml;
     const d=new Date((DATA.generated_at||0)*1000);
     const today=new Date().toDateString()===d.toDateString();
     $("sub").textContent="Bellicose Church · updated "+(today?"":d.toLocaleDateString([], {month:"short",day:"numeric"})+", ")+d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
@@ -231,16 +325,10 @@ function initRoster(DATA){
 
   function renderPeople(){
     const q=query.toLowerCase();
-    let rows=mainList().filter(p=> popOK(p) && (!zeroOnly||SV(p)===0) && (!q || p.name.toLowerCase().includes(q) || p.teams.some(t=>t.toLowerCase().includes(q))) );
+    let rows=mainList().filter(p=> popOK(p) && (!zeroOnly||SV(p)===0) && (!flagOnly||stats(p).flagged) && (!q || p.name.toLowerCase().includes(q) || p.teams.some(t=>t.toLowerCase().includes(q))) );
     rows.sort(cmpPeople);
-    $("hint").textContent=rows.length+" of "+(DATA.people.length+(DATA.partners_no_team||[]).length)+" partners"+(zeroOnly?" · 0 serves in "+win+"d":"");
-    $("list").innerHTML=rows.length?rows.map(p=>{
-      const nm=p.id?`<a href="#p=${esc(p.id)}">${esc(p.name)}</a>`:esc(p.name);
-      const chips=p.teams.length?p.teams.map(t=>`<span class="chip${selected.has(t)?"":" off"}">${esc(t)}</span>`).join(""):'<span class="chip none">No team assignment</span>';
-      const sv=SV(p);
-      const tags=(p.lead?'<span class="tag lead" title="Lead Partners group">★ Lead</span>':'')+(p.elder?'<span class="tag">Elder</span>':'')+(p.deacon?'<span class="tag">Deacon</span>':'');
-      return `<div class="item"><div class="h"><span class="nm">${nm}${tags}</span><span class="badge b2${sv===0?" z":""}" title="Serves in last ${win} days">${sv}× <small>${win}d</small></span></div><div class="chips">${chips}</div></div>`;
-    }).join(""):'<div class="empty">No matches.</div>';
+    $("hint").textContent=rows.length+" of "+(DATA.people.length+(DATA.partners_no_team||[]).length)+" partners"+(zeroOnly?" · 0 serves in "+win+"d":"")+(flagOnly?" · flagged":"");
+    $("list").innerHTML=rows.length?rows.map(p=>personCard(p,true)).join(""):'<div class="empty">No matches.</div>';
   }
 
   function renderTeams(){
@@ -251,28 +339,47 @@ function initRoster(DATA){
     $("hint").textContent=rows.length+" of "+DATA.teams.length+" teams"+(zeroOnly?" · members with 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(t=>{
       const svc=t.instances>1?` <span class="svc">· ${t.instances} service types</span>`:"";
+      const counts=t.members.map(SV), total=counts.reduce((a,b)=>a+b,0), inactive=counts.filter(c=>c===0).length;
+      const top3=counts.slice().sort((a,b)=>b-a).slice(0,3).reduce((a,b)=>a+b,0);
+      const health=t.members.length?`<div class="health"><span><b>${(total/t.members.length).toFixed(1)}</b> avg serves</span><span class="${inactive?"bad":""}"><b>${inactive}</b> inactive</span>${t.members.length>3&&total?`<span>top 3 did <b>${Math.round(top3/total*100)}%</b></span>`:""}</div>`:"";
       const mem=t.members.slice().sort(sortMode==="serves"?((a,b)=>(SV(b)-SV(a))||byName(a,b)):byName);
       const chips=mem.map(m=>{const nm=m.id?`<a href="#p=${esc(m.id)}">${esc(m.name)}</a>`:esc(m.name);return `<span class="chip">${m.lead?"★ ":""}${nm}<span class="cx">${SV(m)}×</span></span>`;}).join("");
-      return `<div class="item"><div class="h"><span class="nm">${esc(t.name)}${svc}</span><span class="badge">${t.members.length}</span></div><div class="chips">${chips||'<span class="svc">No one assigned</span>'}</div></div>`;
+      return `<div class="item"><div class="h"><span class="nm">${esc(t.name)}${svc}</span><span class="badge">${t.members.length}</span></div>${health}<div class="chips">${chips||'<span class="svc">No one assigned</span>'}</div></div>`;
     }).join(""):'<div class="empty">No matches.</div>';
   }
 
   function renderPartners(){
     const q=query.toLowerCase();
-    let rows=(DATA.partners_no_team||[]).filter(p=>(!q||p.name.toLowerCase().includes(q))&&(!zeroOnly||SV(p)===0)&&leadOK(p));
+    let rows=noTeamPeople().filter(p=>(!q||p.name.toLowerCase().includes(q))&&(!zeroOnly||SV(p)===0)&&(!flagOnly||stats(p).flagged)&&leadOK(p));
     rows.sort(cmpPeople);
     $("hint").textContent=rows.length+" partners with no team assignment"+(zeroOnly?" · 0 serves in "+win+"d":"");
-    $("list").innerHTML=rows.length?rows.map(p=>{
-      const nm=p.id?`<a href="#p=${esc(p.id)}">${esc(p.name)}</a>`:esc(p.name);
-      const sv=SV(p);
-      const tags=(p.lead?'<span class="tag lead" title="Lead Partners group">★ Lead</span>':'')+(p.elder?'<span class="tag">Elder</span>':'')+(p.deacon?'<span class="tag">Deacon</span>':'');
-      return `<div class="item"><div class="h"><span class="nm">${nm}${tags}</span><span class="badge b2${sv===0?" z":""}" title="Serves in last ${win} days">${sv}× <small>${win}d</small></span></div></div>`;
-    }).join(""):'<div class="empty">Every Partner is on a team. 🎉</div>';
+    $("list").innerHTML=rows.length?rows.map(p=>personCard(p,false)).join(""):'<div class="empty">Every Partner is on a team. 🎉</div>';
+  }
+
+  function renderWeek(){
+    const q=query.toLowerCase();
+    const plans=(DATA.week||[]).map(pl=>({...pl,members:pl.members.filter(m=>!q||m.name.toLowerCase().includes(q)||String(m.team).toLowerCase().includes(q)||pl.service.toLowerCase().includes(q))})).filter(pl=>!q||pl.members.length);
+    $("hint").textContent=plans.length+" plan"+(plans.length===1?"":"s")+" in the next 7 days";
+    $("list").innerHTML=plans.length?plans.map(pl=>{
+      const d=wall(pl.date);
+      const n=st=>pl.members.filter(m=>m.status===st).length, open=pl.needed.reduce((a,x)=>a+x.quantity,0);
+      const sum=`<span class="pill C">${n("C")} confirmed</span>`+(n("U")?`<span class="pill U">${n("U")} pending</span>`:"")+(n("D")?`<span class="pill D">${n("D")} declined</span>`:"")+(open?`<span class="pill open">${open} open</span>`:"");
+      const teams={}; pl.members.forEach(m=>(teams[m.team||"Other"]=teams[m.team||"Other"]||{m:[],o:[]}).m.push(m)); pl.needed.forEach(x=>(teams[x.team||"Other"]=teams[x.team||"Other"]||{m:[],o:[]}).o.push(x));
+      const blocks=Object.keys(teams).sort().map(t=>{
+        const rows=teams[t].m.slice().sort((a,b)=>"CUD".indexOf(a.status)-"CUD".indexOf(b.status)||a.name.localeCompare(b.name)).map(m=>{
+          const who=m.person_id&&byId.has(String(m.person_id))?`<a href="#p=${esc(m.person_id)}">${esc(m.name)}</a>`:esc(m.name);
+          return `<div class="wk-row ${esc(m.status)}"><span class="who">${who}${m.position?` <small>· ${esc(m.position)}</small>`:""}</span><span class="pill ${esc(m.status)}">${esc(STATUS[m.status]||m.status||"")}</span></div>`;
+        }).join("")+teams[t].o.map(x=>`<div class="wk-row open"><span class="who">Open · ${esc(x.position||"Position")}${x.quantity>1?` ×${x.quantity}`:""}</span><span class="pill open">Needed</span></div>`).join("");
+        return `<div class="wk-team"><div class="wk-tn">${esc(t)}</div>${rows}</div>`;
+      }).join("");
+      return `<div class="wk"><div class="wk-h"><div class="sh-date"><span>${d.toLocaleDateString([], {month:"short"})}</span><b>${d.getDate()}</b><span>${d.toLocaleDateString([], {weekday:"short"})}</span></div><div class="t">${esc(pl.service)}${pl.title?` · ${esc(pl.title)}`:""}<small>${esc(fmtDay(pl.date))} · ${esc(fmtTime(pl.date))}</small></div></div><div class="wk-sum">${sum}</div>${blocks||'<div class="wk-team svc">No one scheduled yet.</div>'}</div>`;
+    }).join(""):'<div class="empty">Nothing scheduled in the next 7 days.</div>';
   }
 
   function render(){
     $("teamdd").style.display = view==="partners" ? "none" : "";
-    if(view==="people")renderPeople(); else if(view==="teams")renderTeams(); else renderPartners();
+    $("filters").style.display = view==="week" ? "none" : "";
+    if(view==="people")renderPeople(); else if(view==="teams")renderTeams(); else if(view==="week")renderWeek(); else renderPartners();
   }
 
   function updateDDbtn(){ $("ddbtn").querySelector("span").textContent = selected.size===DATA.teams.length ? "Teams: all" : `Teams: ${selected.size}/${DATA.teams.length}`; }
@@ -320,31 +427,49 @@ function initRoster(DATA){
   $("sortdir").addEventListener("click",()=>{sortDir=sortDir==="asc"?"desc":"asc";updateDir();render();});
   function updateDir(){ $("sortdir").textContent = sortDir==="asc" ? "↑ Asc" : "↓ Desc"; }
   $("zerobtn").addEventListener("click",()=>{zeroOnly=!zeroOnly;$("zerobtn").classList.toggle("active",zeroOnly);render();});
+  const setFlag=on=>{flagOnly=on;$("flagbtn").classList.toggle("active",flagOnly);render();};
+  $("flagbtn").addEventListener("click",()=>setFlag(!flagOnly));
+  $("risk").addEventListener("click",e=>{ if(e.target.id!=="seeflagged")return; e.preventDefault(); if(view!=="people")$("toggle").querySelector('[data-view=people]').click(); setFlag(true); scrollTo({top:$("risk").offsetTop+$("risk").offsetHeight}); });
   $("leadsel").addEventListener("change",e=>{leadMode=e.target.value;summary();render();});
 
   // Partner profile sheet, opened via #p=<id> so the back button closes it.
   const byId=new Map(mainList().map(p=>[String(p.id),p]));
-  const SCHED=DATA.schedules||{};
-  const STATUS={C:"Confirmed",U:"Pending"};
+  const STATUS={C:"Confirmed",U:"Pending",D:"Declined"};
   let openedInApp=false;
   function slotRow(s,showStatus){
-    const d=new Date(s.date);
+    const d=wall(s.date);
     const what=[s.team,s.position].filter(Boolean).join(" · ")||"Scheduled";
-    const pill=showStatus&&s.status?`<span class="pill ${esc(s.status)}">${esc(STATUS[s.status]||s.status)}</span>`:"";
-    return `<div class="sh-row"><div class="sh-date"><span>${d.toLocaleDateString([], {month:"short"})}</span><b>${d.getDate()}</b><span>${d.toLocaleDateString([], {weekday:"short"})}</span></div><div class="sh-what"><div>${esc(what)}</div><small>${esc(s.service)}</small></div>${pill}</div>`;
+    const pill=(showStatus||s.status==="D")&&s.status?`<span class="pill ${esc(s.status)}">${esc(STATUS[s.status]||s.status)}</span>`:"";
+    const reason=s.status==="D"&&s.reason?`<span class="reason">“${esc(s.reason)}”</span>`:"";
+    return `<div class="sh-row"><div class="sh-date"><span>${d.toLocaleDateString([], {month:"short"})}</span><b>${d.getDate()}</b><span>${d.toLocaleDateString([], {weekday:"short"})}</span></div><div class="sh-what"><div>${esc(what)}</div><small>${esc(s.service)} · ${esc(fmtTime(s.date))}</small>${reason}</div>${pill}</div>`;
+  }
+  // 13 past weeks + 4 upcoming, one bar per week of non-declined slots.
+  function trendChart(id){
+    const s=sched(id), now=weekIdx(new Date()), counts={};
+    s.past.concat(s.upcoming).filter(x=>x.status!=="D").forEach(x=>{const w=weekIdx(x.date);counts[w]=(counts[w]||0)+1;});
+    const weeks=[]; for(let w=now-12;w<=now+4;w++) weeks.push(w);
+    const max=Math.max(1,...weeks.map(w=>counts[w]||0));
+    const bars=weeks.map(w=>{const c=counts[w]||0;return `<i class="${w>now?"f":c?(w===now?"now":""):"z"}" style="height:${c?Math.max(8,c/max*100):4}%" title="${c} slot${c===1?"":"s"}"></i>`;}).join("");
+    return `<div class="trend"><div class="bars">${bars}</div><div class="bars-x"><span>13 weeks ago</span><span>▲ now · next 4 weeks</span></div></div>`;
   }
   function openPerson(id){
     const p=byId.get(id); if(!p){closeSheet();return;}
     const sched=SCHED[id]||{past:[],upcoming:[]};
     const tags=(p.lead?'<span class="tag lead">★ Lead Partner</span>':'')+(p.elder?'<span class="tag">Elder</span>':'')+(p.deacon?'<span class="tag">Deacon</span>':'');
-    const stats=DATA.windows.map(w=>`<div class="${w===win?"on":""}"><b>${(p.serves&&p.serves["d"+w])||0}</b><span>serves · ${w} days</span></div>`).join("");
+    const statsHtml=DATA.windows.map(w=>`<div class="${w===win?"on":""}"><b>${(p.serves&&p.serves["d"+w])||0}</b><span>serves · ${w} days</span></div>`).join("");
     const chips=p.teams.length?p.teams.map(t=>`<span class="chip">${esc(t)}</span>`).join(""):'<span class="chip none">No team assignment</span>';
+    const st=stats(p);
+    const alerts=st.doubles.map(x=>`<div class="sh-alert">⚠ Double-booked ${esc(fmtDay(x.date))} at ${esc(fmtTime(x.date))}: ${x.slots.map(z=>esc([z.team,z.position].filter(Boolean).join(" · ")||z.service)).join(" and ")}</div>`).join("")+
+      (st.streak>=STREAK_FLAG?`<div class="sh-alert">🔁 Serving ${st.streak} weeks in a row</div>`:"")+
+      (st.declines>=DECLINE_FLAG?`<div class="sh-alert">${st.declines} declines in the last ${win} days</div>`:"")+
+      `<div class="sh-alert info">${esc(gapText(st))}${st.declines&&st.declines<DECLINE_FLAG?` · ${st.declines} decline in ${win} days`:""}${st.pending?` · ${st.pending} pending request${st.pending===1?"":"s"}`:""}</div>`;
     const list=(rows,status,empty)=>`<div class="sh-list">${rows.length?rows.map(s=>slotRow(s,status)).join(""):`<div class="sh-empty">${empty}</div>`}</div>`;
     $("sheet-card").innerHTML=`<div class="sh-top"><div><h2 id="sh-name">${esc(p.name)}</h2>${tags?`<div class="tags">${tags}</div>`:""}</div><button type="button" class="sh-x" id="sheet-x" aria-label="Close">×</button></div>
-<div class="sh-body"><div class="sh-stats">${stats}</div>
+<div class="sh-body"><div class="sh-alerts">${alerts}</div><div class="sh-stats">${statsHtml}</div>
+<div class="sh-h">Weekly serving</div>${trendChart(id)}
 <div class="sh-h">Teams</div><div class="chips" style="margin-top:0">${chips}</div>
 <div class="sh-h">Upcoming · next 4 weeks</div>${list(sched.upcoming,true,"Nothing scheduled.")}
-<div class="sh-h">Served · last 90 days</div>${list(sched.past,false,"No serves in the last 90 days.")}
+<div class="sh-h">History · last 90 days</div>${list(sched.past,false,"Nothing in the last 90 days.")}
 ${p.url?`<a class="sh-pco" href="${esc(p.url)}" target="_blank" rel="noopener">Open in Planning Center ↗</a>`:""}</div>`;
     $("sheet").hidden=false; $("sheet-card").scrollTop=0; document.body.classList.add("noscroll");
     $("sheet-x").focus({preventScroll:true});

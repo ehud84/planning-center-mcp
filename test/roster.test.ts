@@ -18,10 +18,10 @@ const team = (id: string, name: string, people: string[]) => ({
   attributes: { name },
   relationships: { people: { data: people.map((p) => ({ type: "Person", id: p })) } },
 });
-const member = (personId: string, status = "C") => ({
+const member = (personId: string, status = "C", decline_reason?: string) => ({
   type: "PlanPerson",
   id: `pp${personId}`,
-  attributes: { status, team_position_name: "Drums" },
+  attributes: { name: `Name ${personId}`, status, team_position_name: "Drums", decline_reason },
   relationships: { person: { data: { type: "Person", id: personId } }, team: { data: { type: "Team", id: "t1" } } },
 });
 const withTeam = (d: ReturnType<typeof doc>) => ({ ...d, included: [{ type: "Team", id: "t1", attributes: { name: "Band " } }] });
@@ -46,7 +46,10 @@ const ROUTES: Record<string, unknown> = {
     { type: "Plan", id: "p4", attributes: { sort_date: daysAgo(120) } },
   ]),
   "/services/v2/service_types/st1/plans/p1/team_members": withTeam(doc([member("1"), member("2")])),
-  "/services/v2/service_types/st1/plans/p2/team_members": doc([member("1")]),
+  "/services/v2/service_types/st1/plans/p2/team_members": doc([member("1"), member("2", "D", "Out of town")]),
+  "/services/v2/service_types/st1/plans/f1/needed_positions": withTeam(
+    doc([{ type: "NeededPosition", id: "n1", attributes: { team_position_name: "Bass", quantity: 2 }, relationships: { team: { data: { type: "Team", id: "t1" } } } }]),
+  ),
   "/services/v2/service_types/st1/plans/p3/team_members": doc([member("1"), member("5")]),
   "/services/v2/service_types/st1/plans/p4/team_members": doc([member("1")]),
   "/people/v2/people": doc(
@@ -95,6 +98,19 @@ describe("buildRosterPayload", () => {
       { date: daysAgo(-7), service: "Sunday", team: "Band", position: "Drums", status: "U" },
     ]);
     expect(payload.schedules["4"]).toBeUndefined(); // not a Partner
+    // Declines are kept (with reason) but never counted as serves.
+    expect(payload.schedules["2"].past).toContainEqual(expect.objectContaining({ status: "D", reason: "Out of town" }));
+    expect(payload.people.find((p) => p.name === "P baker")!.serves).toEqual({ d30: 1, d60: 1, d90: 1 });
+    // Plans in the next 7 days carry their full lineup and open positions.
+    expect(payload.week).toEqual([
+      {
+        date: daysAgo(-7),
+        service: "Sunday",
+        title: null,
+        members: [{ name: "Name 1", person_id: "1", team: "Band", position: "Drums", status: "U" }],
+        needed: [{ team: "Band", position: "Bass", quantity: 2 }],
+      },
+    ]);
     expect(adams.id).toBe("1");
     expect(payload.windows).toEqual([30, 60, 90]);
     expect(payload.generated_at).toBe(NOW / 1000);
