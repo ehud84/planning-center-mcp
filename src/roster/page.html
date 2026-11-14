@@ -30,6 +30,73 @@ button.logout{background:none;cursor:pointer;font-family:inherit}
 .mi.ex span{width:18px;text-align:center}
 .ex-note{font-size:11.5px;color:var(--mute);padding:6px 10px 4px;border-top:1px solid var(--line);margin-top:4px;white-space:normal}
 .report{display:none}
+
+/* ---- motion & micro-interactions ---- */
+:root{--ease:cubic-bezier(.2,.8,.2,1)}
+button,.item,.card,.chip,.pr,.ddrow,.mi,.panel,.sh-row,.wk{transition:transform .16s var(--ease),box-shadow .22s var(--ease),background-color .2s,border-color .2s,color .2s,opacity .2s}
+button:active,.ddrow:active,.mi:active{transform:scale(.96)}
+.item:active,.wk:active{transform:scale(.99)}
+.nm a,.pn a,.chip a,.who a{transition:color .15s}
+@media (hover:hover){
+  .item:hover,.wk:hover{border-color:#cfd6e3;box-shadow:0 6px 18px -10px rgba(16,24,40,.28);transform:translateY(-1px)}
+  .card:hover{border-color:#cfd6e3;box-shadow:0 4px 14px -8px rgba(16,24,40,.2)}
+  .nm a:hover,.pn a:hover,.who a:hover{color:var(--accent)}
+  .chip:hover{background:#e9edf4}
+  .pr:hover{background:rgba(16,24,40,.03)}
+  .ddbtn:hover,.minibtn:hover{border-color:#b8c2d3;background:#fafbfc}
+  .sh-row:hover{background:#fafbfc}
+  .mi:hover{background:var(--accent-soft);color:var(--ink)}
+}
+.ddbtn,.minibtn,.search{transition:border-color .2s,box-shadow .2s,background-color .2s,transform .16s var(--ease)}
+.minibtn.active{box-shadow:inset 0 0 0 1px #b8c9f5}
+/* sliding pill behind the active tab / window */
+.toggle,.seg{position:relative;isolation:isolate}
+.toggle button.active,.seg button.active{background:transparent;box-shadow:none}
+.toggle button,.seg button{position:relative;z-index:1}
+.slider{position:absolute;top:3px;bottom:3px;left:0;width:0;border-radius:9px;background:#fff;box-shadow:0 1px 3px rgba(16,24,40,.12),0 1px 1px rgba(16,24,40,.04);transition:transform .34s var(--ease),width .34s var(--ease);z-index:0}
+.slider.now{transition:none}
+/* list items fade up, slightly staggered */
+.enter>.item,.enter>.wk{animation:itemIn .42s var(--ease) backwards;animation-delay:calc(var(--i,0)*24ms)}
+@keyframes itemIn{from{opacity:0;transform:translateY(8px)}}
+.risk.enter .panel{animation:itemIn .45s var(--ease) backwards}
+.risk.enter .panel:nth-child(2){animation-delay:40ms}.risk.enter .panel:nth-child(3){animation-delay:80ms}
+/* popovers */
+.ddpanel:not([hidden]){animation:pop .18s var(--ease) backwards;transform-origin:top left}
+.exp .ddpanel:not([hidden]){transform-origin:top right}
+@keyframes pop{from{opacity:0;transform:translateY(-6px) scale(.97)}}
+/* frosted sticky bar */
+.controls{background:rgba(244,245,247,.8);-webkit-backdrop-filter:saturate(1.6) blur(14px);backdrop-filter:saturate(1.6) blur(14px)}
+/* search clear */
+.searchwrap{position:relative;flex:1 1 180px;min-width:0;display:flex}
+.searchwrap .search{flex:1;padding-right:36px}
+.search::-webkit-search-cancel-button{display:none}
+.sclear{position:absolute;right:6px;top:50%;width:28px;height:28px;margin-top:-14px;border:0;border-radius:50%;background:#e4e7ec;color:var(--ink2);font-size:17px;line-height:1;cursor:pointer;animation:pop .16s var(--ease)}
+.sclear[hidden]{display:none}
+/* count-up numbers */
+.card .n,.sh-stats b{display:inline-block}
+.badge.bump{animation:bump .4s var(--ease)}
+@keyframes bump{40%{transform:scale(1.18)}}
+/* sheet open/close + drag */
+.sheet.closing .sheet-bg{animation:fadeOut .2s ease-in forwards}
+.sheet.closing .sheet-card{animation:sink .22s ease-in forwards}
+@keyframes fadeOut{to{opacity:0}}
+@keyframes sink{to{transform:translateY(40px);opacity:0}}
+.sheet-card.dragging{transition:none!important;animation:none}
+.sheet-card.snap{transition:transform .28s var(--ease)}
+.sh-top::before{content:"";position:absolute;left:50%;top:6px;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:rgba(255,255,255,.28)}
+@media (min-width:700px){.sh-top::before{display:none}}
+.sh-x:hover{background:rgba(255,255,255,.2)}
+.sh-row{animation:itemIn .35s var(--ease) backwards;animation-delay:calc(var(--i,0)*18ms)}
+.bars i{transform-origin:bottom;animation:grow .5s var(--ease) backwards;animation-delay:calc(var(--i,0)*18ms)}
+@keyframes grow{from{transform:scaleY(0)}}
+/* back to top + toast */
+.totop{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom) + 18px);z-index:40;width:44px;height:44px;border-radius:50%;border:0;background:var(--brand);color:#fff;font-size:18px;box-shadow:0 8px 20px -6px rgba(16,24,40,.45);cursor:pointer;opacity:0;transform:translateY(12px) scale(.9);pointer-events:none;transition:opacity .25s,transform .25s var(--ease)}
+.totop.show{opacity:1;transform:none;pointer-events:auto}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 76px);z-index:60;transform:translate(-50%,20px);opacity:0;background:var(--brand);color:#fff;font-size:13.5px;font-weight:600;padding:10px 16px;border-radius:999px;box-shadow:0 10px 30px -8px rgba(16,24,40,.5);pointer-events:none;transition:opacity .25s,transform .3s var(--ease);white-space:nowrap}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.logo{transition:transform .5s var(--ease)}
+.hdr-in:hover .logo{transform:rotate(-6deg) scale(1.05)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @media print{
   @page{size:letter landscape;margin:11mm 11mm 14mm;@bottom-left{content:"Bellicose Church  ·  Partner Serving Review  ·  Confidential, for elder review only";font:7.5pt Roboto,Helvetica,Arial,sans-serif;color:#98a2b3}@bottom-right{content:"Page " counter(page) " of " counter(pages);font:7.5pt Roboto,Helvetica,Arial,sans-serif;color:#667085}}
   html,body{background:#fff!important}
@@ -260,7 +327,7 @@ body.noscroll{overflow:hidden}
 <button type="button" data-view="week">This week</button>
 </div>
 <div class="row2">
-<input class="search" id="search" type="search" placeholder="Search people or teams" autocomplete="off" enterkeyhint="search">
+<div class="searchwrap"><input class="search" id="search" type="search" placeholder="Search people or teams" autocomplete="off" enterkeyhint="search"><button type="button" class="sclear" id="sclear" aria-label="Clear search" hidden>×</button></div>
 </div>
 <div class="filters" id="filters">
 <div class="dd" id="teamdd">
@@ -299,6 +366,8 @@ body.noscroll{overflow:hidden}
 <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sh-name" id="sheet-card"></div>
 </div>
 </div>
+<button type="button" class="totop" id="totop" aria-label="Back to top">↑</button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="report" id="report" aria-hidden="true"></div>
 <script>
 function initRoster(DATA){
@@ -452,10 +521,18 @@ function initRoster(DATA){
     }).join(""):'<div class="empty">Nothing scheduled in the next 7 days.</div>';
   }
 
+  let animateList=true;
+  function staggerIn(el){
+    el.classList.remove("enter"); void el.offsetWidth;
+    [...el.children].slice(0,14).forEach((c,i)=>c.style.setProperty("--i",i));
+    el.classList.add("enter");
+  }
   function render(){
     $("teamdd").style.display = view==="partners" ? "none" : "";
     $("filters").style.display = view==="week" ? "none" : "";
     if(view==="people")renderPeople(); else if(view==="teams")renderTeams(); else if(view==="week")renderWeek(); else renderPartners();
+    if(animateList) staggerIn($("list"));
+    animateList=true;
   }
 
   function updateDDbtn(){ $("ddbtn").querySelector("span").textContent = selected.size===DATA.teams.length ? "Teams: all" : `Teams: ${selected.size}/${DATA.teams.length}`; }
@@ -465,7 +542,7 @@ function initRoster(DATA){
     updateDDbtn();
   }
 
-  $("seg").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;win=parseInt(b.dataset.win,10);[...$("seg").children].forEach(x=>x.classList.toggle("active",x.dataset.win==String(win)));summary();render();});
+  $("seg").addEventListener("click",e=>{const b=e.target.closest("button");if(!b||b.classList.contains("active"))return;win=parseInt(b.dataset.win,10);[...$("seg").children].forEach(x=>x.classList.toggle("active",x.dataset.win==String(win)));summary();staggerIn($("risk"));animateList=false;render();$("list").querySelectorAll(".badge.b2").forEach((x,i)=>{if(i<20)x.classList.add("bump");});});
   // Popovers are positioned under their button, inside the sticky controls bar.
   function place(panel,btn){
     const box=$("controls").getBoundingClientRect(), b=btn.getBoundingClientRect();
@@ -498,7 +575,8 @@ function initRoster(DATA){
   $("selall").addEventListener("click",()=>{DATA.teams.forEach(t=>selected.add(t.name));buildDD();summary();render();});
   $("selnone").addEventListener("click",()=>{selected.clear();buildDD();summary();render();});
   $("toggle").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;view=b.dataset.view;[...$("toggle").children].forEach(x=>x.classList.toggle("active",x.dataset.view===view));render();if(ctl.classList.contains("stuck"))scrollTo({top:$("risk").offsetTop+$("risk").offsetHeight});});
-  $("search").addEventListener("input",e=>{query=e.target.value.trim();render();});
+  $("search").addEventListener("input",e=>{query=e.target.value.trim();$("sclear").hidden=!e.target.value;animateList=false;render();});
+  $("sclear").addEventListener("click",()=>{$("search").value="";query="";$("sclear").hidden=true;render();$("search").focus();});
   $("sortsel").addEventListener("change",e=>{sortMode=e.target.value;sortDir=(sortMode==="name")?"asc":"desc";updateDir();render();});
   $("sortdir").addEventListener("click",()=>{sortDir=sortDir==="asc"?"desc":"asc";updateDir();render();});
   function updateDir(){ $("sortdir").textContent = sortDir==="asc" ? "↑ Asc" : "↓ Desc"; }
@@ -547,17 +625,25 @@ function initRoster(DATA){
 <div class="sh-h">Upcoming · next 4 weeks</div>${list(sched.upcoming,true,"Nothing scheduled.")}
 <div class="sh-h">History · last 90 days</div>${list(sched.past,false,"Nothing in the last 90 days.")}
 ${p.url?`<a class="sh-pco" href="${esc(p.url)}" target="_blank" rel="noopener">Open in Planning Center ↗</a>`:""}</div>`;
-    $("sheet").hidden=false; $("sheet-card").scrollTop=0; document.body.classList.add("noscroll");
+    $("sheet").classList.remove("closing"); $("sheet").hidden=false; $("sheet-card").scrollTop=0; $("sheet-card").style.transform=""; document.body.classList.add("noscroll");
+    $("sheet-card").querySelectorAll(".sh-list").forEach(l=>[...l.children].slice(0,12).forEach((r,i)=>r.style.setProperty("--i",i)));
+    $("sheet-card").querySelectorAll(".bars i").forEach((b,i)=>b.style.setProperty("--i",i));
+    $("sheet-card").querySelectorAll(".sh-stats b").forEach(b=>countUp(b,parseInt(b.textContent,10)||0,500));
     $("sheet-x").focus({preventScroll:true});
   }
-  function closeSheet(){ $("sheet").hidden=true; document.body.classList.remove("noscroll"); }
+  function closeSheet(){
+    const sh=$("sheet"); if(sh.hidden)return;
+    document.body.classList.remove("noscroll");
+    if(reduced){sh.hidden=true;return;}
+    sh.classList.add("closing");
+    setTimeout(()=>{sh.hidden=true;sh.classList.remove("closing");$("sheet-card").style.transform="";},210);
+  }
   function requestClose(){ if(openedInApp){history.back();} else {history.replaceState(null,"",location.pathname);closeSheet();} }
   function onHash(){ const m=location.hash.match(/^#p=(\w+)/); m?openPerson(m[1]):closeSheet(); }
   addEventListener("hashchange",()=>{openedInApp=/^#p=/.test(location.hash);onHash();});
   $("sheet-bg").addEventListener("click",requestClose);
   $("sheet-card").addEventListener("click",e=>{ if(e.target.closest("#sheet-x")) requestClose(); });
   document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&!$("sheet").hidden) requestClose(); });
-  onHash();
   // ---- Export: printable review sheet and CSV of the currently filtered Partners ----
   const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const roleText=p=>[p.lead&&"Lead Partner",p.elder&&"Elder",p.deacon&&"Deacon"].filter(Boolean).join(", ");
@@ -614,8 +700,39 @@ ${heads.length?`<div class="r-h">Heads up <small>double-booked · ${STREAK_FLAG}
   $("exportbtn").addEventListener("click",e=>{e.stopPropagation();const m=$("exportmenu");m.hidden=!m.hidden;if(!m.hidden)updateExportNote();});
   document.addEventListener("click",e=>{ if(!$("exportmenu").contains(e.target)) $("exportmenu").hidden=true; });
   $("ex-print").addEventListener("click",async()=>{$("exportmenu").hidden=true;buildReport();try{await document.fonts.ready;}catch{} window.print();});
-  $("ex-csv").addEventListener("click",()=>{$("exportmenu").hidden=true;downloadCsv();});
+  $("ex-csv").addEventListener("click",()=>{$("exportmenu").hidden=true;downloadCsv();toast(`Spreadsheet downloaded · ${exportSet().rows.length} partners`);});
   addEventListener("beforeprint",buildReport);
+  // ---- micro-interactions ----
+  const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function countUp(el,to,ms=650){
+    if(reduced||!to){el.textContent=to;return;}
+    const t0=performance.now();
+    const step=t=>{const k=Math.min(1,(t-t0)/ms),e=1-Math.pow(1-k,3);el.textContent=Math.round(to*e);if(k<1)requestAnimationFrame(step);};
+    requestAnimationFrame(step);
+  }
+  let toastTimer;
+  function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2400);}
+  function slider(container){
+    const ind=document.createElement("span"); ind.className="slider now"; container.prepend(ind);
+    const move=()=>{const a=container.querySelector("button.active");if(!a)return;ind.style.width=a.offsetWidth+"px";ind.style.transform=`translateX(${a.offsetLeft}px)`;};
+    new MutationObserver(move).observe(container,{subtree:true,attributes:true,attributeFilter:["class"]});
+    addEventListener("resize",()=>{ind.classList.add("now");move();requestAnimationFrame(()=>ind.classList.remove("now"));});
+    move(); requestAnimationFrame(()=>requestAnimationFrame(()=>ind.classList.remove("now")));
+    if(document.fonts) document.fonts.ready.then(move);
+  }
+  slider($("toggle")); slider($("seg"));
+  $("cards").querySelectorAll(".n").forEach(n=>countUp(n,parseInt(n.textContent,10)||0));
+  staggerIn($("risk"));
+  addEventListener("scroll",()=>$("totop").classList.toggle("show",scrollY>900),{passive:true});
+  $("totop").addEventListener("click",()=>scrollTo({top:0,behavior:reduced?"auto":"smooth"}));
+  // Swipe the profile header down to dismiss it on touch screens.
+  (()=>{
+    let y0=null,dy=0;const card=$("sheet-card");
+    card.addEventListener("touchstart",e=>{if(!e.target.closest(".sh-top")||e.target.closest("#sheet-x"))return;y0=e.touches[0].clientY;dy=0;card.classList.add("dragging");},{passive:true});
+    card.addEventListener("touchmove",e=>{if(y0==null)return;dy=Math.max(0,e.touches[0].clientY-y0);card.style.transform=`translateY(${dy}px)`;},{passive:true});
+    card.addEventListener("touchend",()=>{if(y0==null)return;y0=null;card.classList.remove("dragging");if(dy>90){requestClose();}else{card.classList.add("snap");card.style.transform="";setTimeout(()=>card.classList.remove("snap"),300);}});
+  })();
+  onHash();
   const ctl=$("controls");
   addEventListener("scroll",()=>ctl.classList.toggle("stuck",ctl.getBoundingClientRect().top<=0),{passive:true});
   const ld=$("loading"); if(ld) ld.style.display="none";
