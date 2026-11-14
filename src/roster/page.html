@@ -47,15 +47,16 @@ h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
 .toggle button.active{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(16,24,40,.1)}
 .row2{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .search{flex:1 1 180px;min-width:0;height:40px;padding:0 12px 0 34px;border:1px solid var(--line2);border-radius:10px;font-size:16px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2398a2b3' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='5'/%3E%3Cpath d='m11 11 3.5 3.5'/%3E%3C/svg%3E") no-repeat 12px center}
-.search:focus,.sortsel:focus,.ddbtn:focus,.minibtn:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,91,211,.14)}
+.search:focus,.ddbtn:focus-visible,.minibtn:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,91,211,.14)}
 .filters{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:8px -16px 0;padding:0 16px 1px;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 16px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,transparent 0,#000 16px,#000 calc(100% - 28px),transparent)}
 .filters::-webkit-scrollbar{display:none}
 .dd{position:relative;flex:none}
-.ddbtn,.sortsel,.minibtn{height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:10px;background:#fff;font-size:13px;font-weight:600;color:var(--ink2);white-space:nowrap;cursor:pointer;flex:none}
-.sortsel{appearance:none;-webkit-appearance:none;padding-right:28px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23667085' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='m1 1 4 4 4-4'/%3E%3C/svg%3E") no-repeat right 11px center}
-.filters .ddbtn,.filters .sortsel,.filters .minibtn{height:34px;border-radius:999px;font-size:12.5px}
+.ddbtn,.minibtn{height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:10px;background:#fff;font-size:13px;font-weight:600;color:var(--ink2);white-space:nowrap;cursor:pointer;flex:none}
+.filters .ddbtn,.filters .minibtn{height:34px;border-radius:999px;font-size:12.5px}
 .minibtn.active{background:var(--accent-soft);border-color:#b8c9f5;color:#1f3f99}
-.ddpanel{position:absolute;left:16px;right:16px;top:calc(100% + 4px);max-height:min(360px,60vh);overflow:auto;background:#fff;border:1px solid var(--line2);border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18);padding:8px;z-index:30}
+.menubtn{display:inline-flex;align-items:center;gap:7px}
+.menubtn svg{color:var(--mute);flex:none}
+.ddpanel{position:absolute;left:16px;width:min(300px,calc(100% - 32px));top:calc(100% + 4px);max-height:min(360px,60vh);overflow:auto;background:#fff;border:1px solid var(--line2);border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18);padding:8px;z-index:30}
 .ddhead{display:flex;gap:6px;margin-bottom:6px;position:sticky;top:-8px;background:#fff;padding-top:2px}
 .ddhead button{flex:1;border:1px solid var(--line2);background:#f9fafb;border-radius:8px;padding:7px;font-size:12px;font-weight:600;color:var(--ink2);cursor:pointer}
 .ddrow{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:8px;font-size:14px;cursor:pointer}
@@ -84,7 +85,13 @@ h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
 .chip a{color:var(--ink2);text-decoration:none}
 .chip .cx{color:var(--faint);margin-left:6px;font-size:11px;font-variant-numeric:tabular-nums}
 .empty{text-align:center;color:var(--faint);padding:40px}
-@media (min-width:700px){.ddpanel{right:auto;width:300px}.winbar{justify-content:flex-start}}
+.ddpanel.menu{width:auto;min-width:200px;max-width:calc(100% - 32px);padding:6px}
+.mi{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;text-align:left;padding:9px 10px;border-radius:8px;font-size:14px;color:var(--ink2);cursor:pointer;white-space:nowrap}
+.mi::before{content:"";width:14px;flex:none}
+.mi.on{color:var(--ink);font-weight:600}
+.mi.on::before{content:"✓";color:var(--accent);font-weight:700}
+.mi:hover{background:var(--bg)}
+@media (min-width:700px){.winbar{justify-content:flex-start}}
 @media (max-width:360px){.risk{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,1fr)}}
 </style></head><body>
 <header class="hdr"><div class="hdr-in">
@@ -112,22 +119,25 @@ h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
 </div>
 <div class="filters">
 <div class="dd" id="teamdd">
-<button type="button" class="ddbtn" id="ddbtn">Teams</button>
+<button type="button" class="ddbtn menubtn" id="ddbtn"><span>Teams</span><svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m1 1 4 4 4-4"/></svg></button>
 </div>
-<select class="sortsel" id="leadsel" aria-label="Role filter">
+<button type="button" class="ddbtn menubtn" data-menu="leadsel" aria-haspopup="listbox"><span></span><svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m1 1 4 4 4-4"/></svg></button>
+<select id="leadsel" hidden>
 <option value="all">All roles</option>
 <option value="exelder">Hide elders</option>
 <option value="exdeacon">Hide elders &amp; deacons</option>
 <option value="exclude">Hide elders, deacons &amp; leads</option>
 </select>
-<select class="sortsel" id="sortsel" aria-label="Sort by">
-<option value="serves">Sort: serves</option>
-<option value="count">Sort: team count</option>
-<option value="name">Sort: name</option>
+<button type="button" class="ddbtn menubtn" data-menu="sortsel" data-prefix="Sort: " aria-haspopup="listbox"><span></span><svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="m1 1 4 4 4-4"/></svg></button>
+<select id="sortsel" hidden>
+<option value="serves">Serves</option>
+<option value="count">Team count</option>
+<option value="name">Name</option>
 </select>
 <button type="button" class="minibtn" id="sortdir" title="Toggle ascending / descending">↓ Desc</button>
 <button type="button" class="minibtn" id="zerobtn" title="Show only people with no serves in the window">0 serves</button>
 </div>
+<div class="ddpanel menu" id="menupanel" role="listbox" hidden></div>
 <div class="ddpanel" id="ddpanel" hidden>
 <div class="ddhead"><button type="button" id="selall">Select all</button><button type="button" id="selnone">Clear</button></div>
 <div id="ddlist"></div>
@@ -226,7 +236,7 @@ function initRoster(DATA){
     if(view==="people")renderPeople(); else if(view==="teams")renderTeams(); else renderPartners();
   }
 
-  function updateDDbtn(){ $("ddbtn").textContent = selected.size===DATA.teams.length ? "Teams: all" : `Teams: ${selected.size}/${DATA.teams.length}`; }
+  function updateDDbtn(){ $("ddbtn").querySelector("span").textContent = selected.size===DATA.teams.length ? "Teams: all" : `Teams: ${selected.size}/${DATA.teams.length}`; }
   function buildDD(){
     $("ddlist").innerHTML=DATA.teams.map(t=>`<label class="ddrow"><input type="checkbox" value="${esc(t.name)}" ${selected.has(t.name)?"checked":""}><span>${esc(t.name)}</span><span class="ddn">${t.members.length}</span></label>`).join("");
     $("ddlist").querySelectorAll("input").forEach(cb=>cb.addEventListener("change",()=>{cb.checked?selected.add(cb.value):selected.delete(cb.value);updateDDbtn();summary();render();}));
@@ -234,7 +244,34 @@ function initRoster(DATA){
   }
 
   $("seg").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;win=parseInt(b.dataset.win,10);[...$("seg").children].forEach(x=>x.classList.toggle("active",x.dataset.win==String(win)));summary();render();});
-  $("ddbtn").addEventListener("click",()=>{$("ddpanel").hidden=!$("ddpanel").hidden;});
+  // Popovers are positioned under their button, inside the sticky controls bar.
+  function place(panel,btn){
+    const box=$("controls").getBoundingClientRect(), b=btn.getBoundingClientRect();
+    const width=Math.min(panel.offsetWidth||280,box.width-32);
+    panel.style.left=Math.max(16,Math.min(b.left-box.left,box.width-16-width))+"px";
+  }
+  $("ddbtn").addEventListener("click",()=>{const p=$("ddpanel");p.hidden=!p.hidden;$("menupanel").hidden=true;if(!p.hidden)place(p,$("ddbtn"));});
+  let menuBtn=null;
+  document.querySelectorAll("[data-menu]").forEach(btn=>{
+    const sel=$(btn.dataset.menu);
+    const label=()=>{btn.querySelector("span").textContent=(btn.dataset.prefix||"")+sel.options[sel.selectedIndex].text;};
+    label(); sel.addEventListener("change",label);
+    btn.addEventListener("click",e=>{
+      e.stopPropagation();
+      const p=$("menupanel");
+      if(menuBtn===btn&&!p.hidden){p.hidden=true;return;}
+      menuBtn=btn; $("ddpanel").hidden=true;
+      p.innerHTML=[...sel.options].map(o=>`<button type="button" class="mi${o.selected?" on":""}" role="option" aria-selected="${o.selected}" data-v="${esc(o.value)}">${esc(o.text)}</button>`).join("");
+      p.hidden=false; place(p,btn);
+    });
+  });
+  $("menupanel").addEventListener("click",e=>{
+    const item=e.target.closest(".mi"); if(!item)return;
+    const sel=$(menuBtn.dataset.menu); sel.value=item.dataset.v; sel.dispatchEvent(new Event("change"));
+    $("menupanel").hidden=true;
+  });
+  document.addEventListener("click",e=>{ if(!$("menupanel").contains(e.target)) $("menupanel").hidden=true; });
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape"){$("menupanel").hidden=true;$("ddpanel").hidden=true;} });
   document.addEventListener("click",e=>{ if(!$("teamdd").contains(e.target)&&!$("ddpanel").contains(e.target)) $("ddpanel").hidden=true; });
   $("selall").addEventListener("click",()=>{DATA.teams.forEach(t=>selected.add(t.name));buildDD();summary();render();});
   $("selnone").addEventListener("click",()=>{selected.clear();buildDD();summary();render();});
