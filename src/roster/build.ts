@@ -1,9 +1,10 @@
-import { type PcoClient, type PcoResource, mapPool, relId, relIds } from "../pco/client";
+import { type PcoClient, type PcoResource, asArray, mapPool, relId, relIds } from "../pco/client";
 
 export const ROSTER_WINDOWS = [30, 60, 90] as const;
 export type Serves = Record<`d${(typeof ROSTER_WINDOWS)[number]}`, number>;
 
 interface RosterMember {
+  id: string;
   name: string;
   last: string;
   url: string | null;
@@ -13,10 +14,21 @@ interface RosterMember {
   deacon: boolean;
 }
 
+/** One scheduled serving slot: plan date, service type, team, position, status (C/U). */
+export interface Slot {
+  date: string;
+  service: string;
+  team: string | null;
+  position: string | null;
+  status: string | null;
+}
+
 export interface RosterPayload {
   people: (RosterMember & { teams: string[] })[];
   teams: { name: string; instances: number; members: RosterMember[] }[];
   partners_no_team: RosterMember[];
+  /** Per Partner: non-declined slots in the last 90 days and the next UPCOMING_DAYS, newest/soonest first. */
+  schedules: Record<string, { past: Slot[]; upcoming: Slot[] }>;
   windows: number[];
   lead_group: string;
   generated_at: number;
@@ -36,6 +48,8 @@ const FALLBACK_DEACON_IDS = [
   "88547337", "88547032", "99160400", "88545253", "88462759", "118245006",
 ];
 
+const UPCOMING_DAYS = 28;
+
 const emptyServes = (): Serves => ({ d30: 0, d60: 0, d90: 0 });
 
 // Python's str.lower() ordering (code points), so sort order matches the original server.
@@ -45,16 +59,16 @@ const byLastThenName = (a: { last: string; name: string }, b: { last: string; na
   cmp(a.name.toLowerCase(), b.name.toLowerCase());
 
 export async function buildRosterPayload(pco: PcoClient, config: RosterConfig, now = Date.now()): Promise<RosterPayload> {
-  const [teamsResult, serveCounts, partners, leadIds, elderIds, deaconIds] = await Promise.all([
+  const [teamsResult, serving, partners, leadIds, elderIds, deaconIds] = await Promise.all([
     pco.getAll("services", "teams", { include: "people" }),
-    fetchServeCounts(pco, now),
+    fetchServing(pco, now),
     fetchPartners(pco),
     fetchGroupMemberIds(pco, config.leadGroup),
     fetchListPersonIds(pco, config.eldersList, FALLBACK_ELDER_IDS),
     fetchListPersonIds(pco, config.deaconsList, FALLBACK_DEACON_IDS),
   ]);
   const partnerIds = new Set(partners.map((p) => p.id));
-  const serves = (id: string) => serveCounts.get(id) ?? emptyServes();
+  const serves = (id: string) => serving.counts.get(id) ?? emptyServes();
   const flags = (id: string) => ({ lead: leadIds.has(id), elder: elderIds.has(id), deacon: deaconIds.has(id) });
 
   const people = new Map<string, { id: string; name: string; last: string; url: string | null; teams: Set<string> }>();
@@ -86,6 +100,7 @@ export async function buildRosterPayload(pco: PcoClient, config: RosterConfig, n
   }
 
   const member = (p: { id: string; name: string; last: string; url: string | null }): RosterMember => ({
+    id: p.id,
     name: p.name,
     last: p.last,
     url: p.url,
@@ -114,6 +129,17 @@ export async function buildRosterPayload(pco: PcoClient, config: RosterConfig, n
     people: peopleOut,
     teams,
     partners_no_team: partnersNoTeam,
+    schedules: Object.fromEntries(
+      [...partnerIds]
+        .filter((id) => serving.past.has(id) || serving.upcoming.has(id))
+        .map((id) => [
+          id,
+          {
+            past: (serving.past.get(id) ?? []).sort((a, b) => cmp(b.date, a.date)),
+            upcoming: (serving.upcoming.get(id) ?? []).sort((a, b) => cmp(a.date, b.date)),
+          },
+        ]),
+    ),
     windows: [...ROSTER_WINDOWS],
     lead_group: config.leadGroup,
     generated_at: Math.floor(now / 1000),
@@ -134,55 +160,79 @@ async function fetchPartners(pco: PcoClient) {
   });
 }
 
-/** Count non-declined serving slots per person for each rolling window, in one pass over the widest window. */
-async function fetchServeCounts(pco: PcoClient, now: number): Promise<Map<string, Serves>> {
+/**
+ * Walk every service type's plans from 90 days ago through the next UPCOMING_DAYS and collect each
+ * person's non-declined slots. Past slots also feed the 30/60/90-day counts, in one pass.
+ */
+async function fetchServing(pco: PcoClient, now: number) {
   const nowSec = now / 1000;
   const cutoffs = ROSTER_WINDOWS.map((d) => [`d${d}` as keyof Serves, nowSec - d * 86400] as const);
   const widest = nowSec - Math.max(...ROSTER_WINDOWS) * 86400;
+  const horizon = nowSec + UPCOMING_DAYS * 86400;
   const counts = new Map<string, Serves>();
+  const past = new Map<string, Slot[]>();
+  const upcoming = new Map<string, Slot[]>();
 
-  const serviceTypes = await pco.get("services", "service_types", { per_page: 100 });
-  const plans: { serviceTypeId: string; planId: string; sortTs: number }[] = [];
+  const serviceTypes = asArray((await pco.get("services", "service_types", { per_page: 100 })).data);
+  const plans: { serviceTypeId: string; service: string; planId: string; date: string; sortTs: number; future: boolean }[] = [];
 
-  await mapPool(Array.isArray(serviceTypes.data) ? serviceTypes.data : [], 4, async (st) => {
+  // Past plans newest-first until the widest window, and future plans soonest-first until the horizon.
+  const walk = (st: PcoResource, filter: "past" | "future") => async () => {
     for (let offset = 0; ; ) {
       const page = await pco.get("services", `service_types/${st.id}/plans`, {
-        filter: "past",
-        order: "-sort_date",
-        per_page: 100,
+        filter,
+        order: filter === "past" ? "-sort_date" : "sort_date",
+        per_page: filter === "past" ? 100 : 25,
         offset,
       });
-      const rows = Array.isArray(page.data) ? page.data : [];
+      const rows = asArray(page.data);
       let done = !rows.length;
       for (const plan of rows) {
-        const sortTs = Date.parse(plan.attributes?.sort_date ?? "") / 1000;
-        if (Number.isNaN(sortTs) || sortTs < widest) {
+        const date = String(plan.attributes?.sort_date ?? "");
+        const sortTs = Date.parse(date) / 1000;
+        if (Number.isNaN(sortTs) || (filter === "past" ? sortTs < widest : sortTs > horizon)) {
           done = true;
           break;
         }
-        plans.push({ serviceTypeId: String(st.id), planId: String(plan.id), sortTs });
+        const service = String(st.attributes?.name ?? "");
+        plans.push({ serviceTypeId: String(st.id), service, planId: String(plan.id), date, sortTs, future: filter === "future" });
       }
       offset += rows.length;
       if (done || offset >= (page.meta?.total_count ?? offset)) break;
     }
-  });
+  };
+  await mapPool(serviceTypes.flatMap((st) => [walk(st, "past"), walk(st, "future")]), 4, (run) => run());
 
-  await mapPool(plans, 4, async ({ serviceTypeId, planId, sortTs }) => {
-    const windowsHit = cutoffs.filter(([, cut]) => sortTs >= cut).map(([key]) => key);
-    if (!windowsHit.length) return;
-    const { data } = await pco.getAll("services", `service_types/${serviceTypeId}/plans/${planId}/team_members`, {
-      filter: "not_declined",
-    });
+  await mapPool(plans, 4, async (plan) => {
+    const windowsHit = cutoffs.filter(([, cut]) => plan.sortTs >= cut).map(([key]) => key);
+    if (!plan.future && !windowsHit.length) return;
+    const { data, included } = await pco.getAll(
+      "services",
+      `service_types/${plan.serviceTypeId}/plans/${plan.planId}/team_members`,
+      { filter: "not_declined", include: "team" },
+    );
+    const teamNames = new Map(included.filter((r) => r.type === "Team").map((t) => [t.id, String(t.attributes?.name ?? "").trim()]));
     for (const row of data) {
       const personId = relId(row, "person");
       if (!personId) continue;
+      const teamId = relId(row, "team");
+      const slot: Slot = {
+        date: plan.date,
+        service: plan.service,
+        team: (teamId && teamNames.get(teamId)) || null,
+        position: row.attributes?.team_position_name ?? null,
+        status: row.attributes?.status ?? null,
+      };
+      const target = plan.future ? upcoming : past;
+      target.set(personId, [...(target.get(personId) ?? []), slot]);
+      if (plan.future) continue;
       const bucket = counts.get(personId) ?? emptyServes();
       counts.set(personId, bucket);
       for (const key of windowsHit) bucket[key] += 1;
     }
   });
 
-  return counts;
+  return { counts, past, upcoming };
 }
 
 async function findByName(pco: PcoClient, product: "groups" | "people", path: string, name: string) {

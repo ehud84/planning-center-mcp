@@ -18,7 +18,13 @@ const team = (id: string, name: string, people: string[]) => ({
   attributes: { name },
   relationships: { people: { data: people.map((p) => ({ type: "Person", id: p })) } },
 });
-const member = (personId: string) => ({ type: "PlanPerson", id: `pp${personId}`, relationships: { person: { data: { type: "Person", id: personId } } } });
+const member = (personId: string, status = "C") => ({
+  type: "PlanPerson",
+  id: `pp${personId}`,
+  attributes: { status, team_position_name: "Drums" },
+  relationships: { person: { data: { type: "Person", id: personId } }, team: { data: { type: "Team", id: "t1" } } },
+});
+const withTeam = (d: ReturnType<typeof doc>) => ({ ...d, included: [{ type: "Team", id: "t1", attributes: { name: "Band " } }] });
 const doc = (data: unknown[], extra: Record<string, unknown> = {}) => ({ data, meta: { total_count: data.length }, ...extra });
 
 // A tiny fake of the Planning Center API, keyed by path.
@@ -27,14 +33,19 @@ const ROUTES: Record<string, unknown> = {
     [team("t1", "Band ", ["1", "2"]), team("t2", "Band", ["3"]), team("t3", "Teachers", ["1"]), team("t4", "Tech", ["4"])],
     { included: [person("1", "Adams"), person("2", "baker"), person("3", "Cole"), person("4", "Nonpartner")] },
   ),
-  "/services/v2/service_types": doc([{ type: "ServiceType", id: "st1" }]),
+  "/services/v2/service_types": doc([{ type: "ServiceType", id: "st1", attributes: { name: "Sunday" } }]),
+  "/services/v2/service_types/st1/plans?future": doc([
+    { type: "Plan", id: "f1", attributes: { sort_date: daysAgo(-7) } },
+    { type: "Plan", id: "f2", attributes: { sort_date: daysAgo(-40) } },
+  ]),
+  "/services/v2/service_types/st1/plans/f1/team_members": withTeam(doc([member("1", "U")])),
   "/services/v2/service_types/st1/plans": doc([
     { type: "Plan", id: "p1", attributes: { sort_date: daysAgo(10) } },
     { type: "Plan", id: "p2", attributes: { sort_date: daysAgo(45) } },
     { type: "Plan", id: "p3", attributes: { sort_date: daysAgo(80) } },
     { type: "Plan", id: "p4", attributes: { sort_date: daysAgo(120) } },
   ]),
-  "/services/v2/service_types/st1/plans/p1/team_members": doc([member("1"), member("2")]),
+  "/services/v2/service_types/st1/plans/p1/team_members": withTeam(doc([member("1"), member("2")])),
   "/services/v2/service_types/st1/plans/p2/team_members": doc([member("1")]),
   "/services/v2/service_types/st1/plans/p3/team_members": doc([member("1"), member("5")]),
   "/services/v2/service_types/st1/plans/p4/team_members": doc([member("1")]),
@@ -49,7 +60,7 @@ const ROUTES: Record<string, unknown> = {
 function mockPco() {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
-    const body = ROUTES[url.pathname];
+    const body = ROUTES[url.pathname + (url.searchParams.get("filter") === "future" ? "?future" : "")];
     return body ? Response.json(body) : new Response("{}", { status: 404 });
   });
 }
@@ -77,6 +88,14 @@ describe("buildRosterPayload", () => {
     expect(payload.partners_no_team).toEqual([
       expect.objectContaining({ name: "Partner 5", serves: { d30: 0, d60: 0, d90: 1 }, lead: false }),
     ]);
+    // Schedules: past slots match the d90 count; only the plan inside the 4-week horizon is upcoming.
+    expect(payload.schedules["1"].past.map((s) => s.date)).toEqual([daysAgo(10), daysAgo(45), daysAgo(80)]);
+    expect(payload.schedules["1"].past[0]).toEqual({ date: daysAgo(10), service: "Sunday", team: "Band", position: "Drums", status: "C" });
+    expect(payload.schedules["1"].upcoming).toEqual([
+      { date: daysAgo(-7), service: "Sunday", team: "Band", position: "Drums", status: "U" },
+    ]);
+    expect(payload.schedules["4"]).toBeUndefined(); // not a Partner
+    expect(adams.id).toBe("1");
     expect(payload.windows).toEqual([30, 60, 90]);
     expect(payload.generated_at).toBe(NOW / 1000);
   });

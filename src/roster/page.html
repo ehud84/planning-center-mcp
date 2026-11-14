@@ -85,6 +85,41 @@ h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
 .chip a{color:var(--ink2);text-decoration:none}
 .chip .cx{color:var(--faint);margin-left:6px;font-size:11px;font-variant-numeric:tabular-nums}
 .empty{text-align:center;color:var(--faint);padding:40px}
+body.noscroll{overflow:hidden}
+.sheet{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.sheet[hidden]{display:none}
+.sheet-bg{position:absolute;inset:0;background:rgba(16,24,40,.45);animation:fade .18s ease-out}
+.sheet-card{position:relative;width:100%;max-width:560px;max-height:92vh;max-height:92dvh;overflow:auto;overscroll-behavior:contain;background:var(--bg);border-radius:18px 18px 0 0;box-shadow:0 -10px 40px rgba(16,24,40,.25);animation:rise .22s cubic-bezier(.2,.8,.2,1);padding-bottom:calc(env(safe-area-inset-bottom) + 20px)}
+@keyframes rise{from{transform:translateY(24px);opacity:0}}
+@keyframes fade{from{opacity:0}}
+.sh-top{position:sticky;top:0;z-index:1;background:var(--brand);color:#fff;padding:18px 18px 16px;display:flex;gap:12px;align-items:flex-start}
+.sh-top h2{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em}
+.sh-top .tags{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+.sh-top .tag{margin:0;background:rgba(255,255,255,.12);color:rgba(255,255,255,.85)}
+.sh-top .tag.lead{background:#fff6d6;color:#855c06}
+.sh-x{margin-left:auto;flex:none;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.12);color:#fff;font-size:20px;line-height:1;cursor:pointer}
+.sh-body{padding:14px 16px 0}
+.sh-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.sh-stats div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.sh-stats div.on{border-color:#b8c9f5;background:var(--accent-soft)}
+.sh-stats b{display:block;font-size:22px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.sh-stats span{font-size:11px;color:var(--mute)}
+.sh-h{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.04em;margin:16px 2px 8px}
+.sh-list{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.sh-row{display:flex;gap:12px;align-items:center;padding:10px 12px;border-top:1px solid var(--line)}
+.sh-row:first-child{border-top:0}
+.sh-date{flex:none;width:44px;text-align:center;line-height:1.1}
+.sh-date b{display:block;font-size:17px;font-variant-numeric:tabular-nums}
+.sh-date span{font-size:10.5px;color:var(--mute);text-transform:uppercase;font-weight:600}
+.sh-what{flex:1;min-width:0}
+.sh-what div{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sh-what small{display:block;color:var(--mute);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{flex:none;font-size:11px;font-weight:650;border-radius:999px;padding:3px 8px}
+.pill.C{background:#edf7ed;color:#2b6a1f}
+.pill.U{background:#fff6d6;color:#855c06}
+.sh-empty{padding:14px 12px;color:var(--faint);font-size:13.5px}
+.sh-pco{display:block;margin:18px 0 0;text-align:center;font-size:13.5px;font-weight:600;color:var(--accent);text-decoration:none;padding:12px;border:1px solid var(--line2);border-radius:12px;background:var(--card)}
+@media (min-width:700px){.sheet{align-items:center}.sheet-card{border-radius:18px;max-height:86vh}}
 .ddpanel.menu{width:auto;min-width:200px;max-width:calc(100% - 32px);padding:6px}
 .mi{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;text-align:left;padding:9px 10px;border-radius:8px;font-size:14px;color:var(--ink2);cursor:pointer;white-space:nowrap}
 .mi::before{content:"";width:14px;flex:none}
@@ -146,6 +181,10 @@ h1{font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em}
 <div class="hint" id="hint"></div>
 <div id="list"></div>
 <div id="loading" class="empty"></div>
+<div class="sheet" id="sheet" hidden>
+<div class="sheet-bg" id="sheet-bg"></div>
+<div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sh-name" id="sheet-card"></div>
+</div>
 </div>
 <script>
 function initRoster(DATA){
@@ -158,7 +197,7 @@ function initRoster(DATA){
   const SV=o=>{const s=o&&o.serves; if(typeof s==="number")return s; return (s&&s["d"+win])||0;};
   const dir=()=>sortDir==="asc"?1:-1;
   // Main roster = partners on a team + partners with no team assignment.
-  const noTeamPeople=()=>(DATA.partners_no_team||[]).map(p=>({name:p.name,last:p.last,url:p.url,serves:p.serves,teams:[],lead:p.lead,elder:p.elder,deacon:p.deacon}));
+  const noTeamPeople=()=>(DATA.partners_no_team||[]).map(p=>({id:p.id,name:p.name,last:p.last,url:p.url,serves:p.serves,teams:[],lead:p.lead,elder:p.elder,deacon:p.deacon}));
   const teamOK=p=>p.teams.length?p.teams.some(t=>selected.has(t)):selected.size===DATA.teams.length;
   const popOK=p=>teamOK(p)&&leadOK(p);
   const mainList=()=>DATA.people.concat(noTeamPeople());
@@ -173,7 +212,7 @@ function initRoster(DATA){
 
   // Cards reflect the active team + role filters (the "who is included" filters).
   function riskPool(){
-    return mainList().filter(popOK).map(p=>({name:p.name,url:p.url,serves:SV(p),teams:p.teams.length}));
+    return mainList().filter(popOK).map(p=>({id:p.id,name:p.name,url:p.url,serves:SV(p),teams:p.teams.length}));
   }
   function summary(){
     const total=DATA.people.length+(DATA.partners_no_team||[]).length;
@@ -183,7 +222,7 @@ function initRoster(DATA){
     const burnout=pool.slice().sort((a,b)=>(b.serves-a.serves)||a.name.localeCompare(b.name)).slice(0,5);
     const inactivity=pool.slice().sort((a,b)=>(a.serves-b.serves)||(b.teams-a.teams)||a.name.localeCompare(b.name)).slice(0,5);
     const panel=(title,cls,rows)=>`<div class="panel ${cls}"><div class="pt">${title}</div>`+
-      ((rows&&rows.length)?rows.map((r,i)=>`<div class="pr"><span class="pi">${i+1}</span><span class="pn">${r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`:esc(r.name)}</span><span class="pv">${r.serves}×</span></div>`).join(""):`<div class="pr"><span class="pn" style="color:#98a2b3">No data</span></div>`)+`</div>`;
+      ((rows&&rows.length)?rows.map((r,i)=>`<div class="pr"><span class="pi">${i+1}</span><span class="pn">${r.id?`<a href="#p=${esc(r.id)}">${esc(r.name)}</a>`:esc(r.name)}</span><span class="pv">${r.serves}×</span></div>`).join(""):`<div class="pr"><span class="pn" style="color:#98a2b3">No data</span></div>`)+`</div>`;
     $("risk").innerHTML=panel(`<span class="pe">🔥</span>Most serves · ${win}d`,"burn",burnout)+panel(`<span class="pe">💤</span>Fewest serves · ${win}d`,"inact",inactivity);
     const d=new Date((DATA.generated_at||0)*1000);
     const today=new Date().toDateString()===d.toDateString();
@@ -196,7 +235,7 @@ function initRoster(DATA){
     rows.sort(cmpPeople);
     $("hint").textContent=rows.length+" of "+(DATA.people.length+(DATA.partners_no_team||[]).length)+" partners"+(zeroOnly?" · 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(p=>{
-      const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
+      const nm=p.id?`<a href="#p=${esc(p.id)}">${esc(p.name)}</a>`:esc(p.name);
       const chips=p.teams.length?p.teams.map(t=>`<span class="chip${selected.has(t)?"":" off"}">${esc(t)}</span>`).join(""):'<span class="chip none">No team assignment</span>';
       const sv=SV(p);
       const tags=(p.lead?'<span class="tag lead" title="Lead Partners group">★ Lead</span>':'')+(p.elder?'<span class="tag">Elder</span>':'')+(p.deacon?'<span class="tag">Deacon</span>':'');
@@ -213,7 +252,7 @@ function initRoster(DATA){
     $("list").innerHTML=rows.length?rows.map(t=>{
       const svc=t.instances>1?` <span class="svc">· ${t.instances} service types</span>`:"";
       const mem=t.members.slice().sort(sortMode==="serves"?((a,b)=>(SV(b)-SV(a))||byName(a,b)):byName);
-      const chips=mem.map(m=>{const nm=m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.name)}</a>`:esc(m.name);return `<span class="chip">${m.lead?"★ ":""}${nm}<span class="cx">${SV(m)}×</span></span>`;}).join("");
+      const chips=mem.map(m=>{const nm=m.id?`<a href="#p=${esc(m.id)}">${esc(m.name)}</a>`:esc(m.name);return `<span class="chip">${m.lead?"★ ":""}${nm}<span class="cx">${SV(m)}×</span></span>`;}).join("");
       return `<div class="item"><div class="h"><span class="nm">${esc(t.name)}${svc}</span><span class="badge">${t.members.length}</span></div><div class="chips">${chips||'<span class="svc">No one assigned</span>'}</div></div>`;
     }).join(""):'<div class="empty">No matches.</div>';
   }
@@ -224,7 +263,7 @@ function initRoster(DATA){
     rows.sort(cmpPeople);
     $("hint").textContent=rows.length+" partners with no team assignment"+(zeroOnly?" · 0 serves in "+win+"d":"");
     $("list").innerHTML=rows.length?rows.map(p=>{
-      const nm=p.url?`<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name);
+      const nm=p.id?`<a href="#p=${esc(p.id)}">${esc(p.name)}</a>`:esc(p.name);
       const sv=SV(p);
       const tags=(p.lead?'<span class="tag lead" title="Lead Partners group">★ Lead</span>':'')+(p.elder?'<span class="tag">Elder</span>':'')+(p.deacon?'<span class="tag">Deacon</span>':'');
       return `<div class="item"><div class="h"><span class="nm">${nm}${tags}</span><span class="badge b2${sv===0?" z":""}" title="Serves in last ${win} days">${sv}× <small>${win}d</small></span></div></div>`;
@@ -283,6 +322,41 @@ function initRoster(DATA){
   $("zerobtn").addEventListener("click",()=>{zeroOnly=!zeroOnly;$("zerobtn").classList.toggle("active",zeroOnly);render();});
   $("leadsel").addEventListener("change",e=>{leadMode=e.target.value;summary();render();});
 
+  // Partner profile sheet, opened via #p=<id> so the back button closes it.
+  const byId=new Map(mainList().map(p=>[String(p.id),p]));
+  const SCHED=DATA.schedules||{};
+  const STATUS={C:"Confirmed",U:"Pending"};
+  let openedInApp=false;
+  function slotRow(s,showStatus){
+    const d=new Date(s.date);
+    const what=[s.team,s.position].filter(Boolean).join(" · ")||"Scheduled";
+    const pill=showStatus&&s.status?`<span class="pill ${esc(s.status)}">${esc(STATUS[s.status]||s.status)}</span>`:"";
+    return `<div class="sh-row"><div class="sh-date"><span>${d.toLocaleDateString([], {month:"short"})}</span><b>${d.getDate()}</b><span>${d.toLocaleDateString([], {weekday:"short"})}</span></div><div class="sh-what"><div>${esc(what)}</div><small>${esc(s.service)}</small></div>${pill}</div>`;
+  }
+  function openPerson(id){
+    const p=byId.get(id); if(!p){closeSheet();return;}
+    const sched=SCHED[id]||{past:[],upcoming:[]};
+    const tags=(p.lead?'<span class="tag lead">★ Lead Partner</span>':'')+(p.elder?'<span class="tag">Elder</span>':'')+(p.deacon?'<span class="tag">Deacon</span>':'');
+    const stats=DATA.windows.map(w=>`<div class="${w===win?"on":""}"><b>${(p.serves&&p.serves["d"+w])||0}</b><span>serves · ${w} days</span></div>`).join("");
+    const chips=p.teams.length?p.teams.map(t=>`<span class="chip">${esc(t)}</span>`).join(""):'<span class="chip none">No team assignment</span>';
+    const list=(rows,status,empty)=>`<div class="sh-list">${rows.length?rows.map(s=>slotRow(s,status)).join(""):`<div class="sh-empty">${empty}</div>`}</div>`;
+    $("sheet-card").innerHTML=`<div class="sh-top"><div><h2 id="sh-name">${esc(p.name)}</h2>${tags?`<div class="tags">${tags}</div>`:""}</div><button type="button" class="sh-x" id="sheet-x" aria-label="Close">×</button></div>
+<div class="sh-body"><div class="sh-stats">${stats}</div>
+<div class="sh-h">Teams</div><div class="chips" style="margin-top:0">${chips}</div>
+<div class="sh-h">Upcoming · next 4 weeks</div>${list(sched.upcoming,true,"Nothing scheduled.")}
+<div class="sh-h">Served · last 90 days</div>${list(sched.past,false,"No serves in the last 90 days.")}
+${p.url?`<a class="sh-pco" href="${esc(p.url)}" target="_blank" rel="noopener">Open in Planning Center ↗</a>`:""}</div>`;
+    $("sheet").hidden=false; $("sheet-card").scrollTop=0; document.body.classList.add("noscroll");
+    $("sheet-x").focus({preventScroll:true});
+  }
+  function closeSheet(){ $("sheet").hidden=true; document.body.classList.remove("noscroll"); }
+  function requestClose(){ if(openedInApp){history.back();} else {history.replaceState(null,"",location.pathname);closeSheet();} }
+  function onHash(){ const m=location.hash.match(/^#p=(\w+)/); m?openPerson(m[1]):closeSheet(); }
+  addEventListener("hashchange",()=>{openedInApp=/^#p=/.test(location.hash);onHash();});
+  $("sheet-bg").addEventListener("click",requestClose);
+  $("sheet-card").addEventListener("click",e=>{ if(e.target.closest("#sheet-x")) requestClose(); });
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&!$("sheet").hidden) requestClose(); });
+  onHash();
   const ctl=$("controls");
   addEventListener("scroll",()=>ctl.classList.toggle("stuck",ctl.getBoundingClientRect().top<=0),{passive:true});
   const ld=$("loading"); if(ld) ld.style.display="none";

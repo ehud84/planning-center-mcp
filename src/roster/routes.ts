@@ -5,7 +5,7 @@ import pageHtml from "./page.html";
 
 const COOKIE = "pco_roster_auth";
 const COOKIE_TTL = 12 * 60 * 60;
-const KV_KEY = "roster:v1";
+const KV_KEY = "roster:v2";
 
 export async function refreshRoster(env: Env): Promise<RosterPayload> {
   const pco = new PcoClient(env.PCO_CLIENT_ID, env.PCO_CLIENT_SECRET);
