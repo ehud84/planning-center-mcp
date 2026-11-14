@@ -1,24 +1,33 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Team Roster</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Roster · Bellicose Church</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#17191b">
+<meta name="apple-mobile-web-app-title" content="Roster">
 <style>
-:root{color-scheme:light}
+:root{color-scheme:dark}
 *{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f6f7f9;color:#1c2430;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-.box{background:#fff;border:1px solid #e6e9ee;border-radius:16px;padding:28px 24px;max-width:340px;width:100%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.05)}
-h1{font-size:19px;margin:0 0 4px}
-p{color:#667085;font-size:13px;margin:0 0 20px}
-input{width:100%;font-size:26px;text-align:center;letter-spacing:10px;padding:14px;border:1px solid #d7dce3;border-radius:12px;background:#fafbfc}
-input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
-button{margin-top:16px;width:100%;padding:14px;font-size:15px;font-weight:600;color:#fff;background:#2563eb;border:0;border-radius:12px;cursor:pointer}
-button:active{background:#1d4ed8}
-.err{color:#b42318;font-size:13px;margin-top:14px;min-height:18px}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#17191b radial-gradient(120% 70% at 50% 0%,#24304d 0%,#17191b 60%);color:#fff;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;-webkit-font-smoothing:antialiased}
+.box{width:100%;max-width:340px;text-align:center}
+.logo{width:64px;height:64px;border-radius:16px;box-shadow:0 0 0 1px rgba(255,255,255,.14),0 10px 30px rgba(0,0,0,.4);margin-bottom:18px}
+h1{font-size:22px;font-weight:700;margin:0 0 4px;letter-spacing:-.01em}
+p{color:rgba(255,255,255,.6);font-size:14px;margin:0 0 24px}
+input{width:100%;font-size:28px;text-align:center;letter-spacing:12px;padding:14px 14px 14px 26px;border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.06);color:#fff;font-family:inherit}
+input{-webkit-text-security:disc}input::placeholder{color:rgba(255,255,255,.3)}
+input:focus{outline:none;border-color:#7aa2ff;box-shadow:0 0 0 3px rgba(122,162,255,.25)}
+button{margin-top:12px;width:100%;padding:15px;font-size:16px;font-weight:650;color:#17191b;background:#fff;border:0;border-radius:14px;cursor:pointer;font-family:inherit}
+button:active{background:#e4e7ec}
+.err{color:#ff8a80;font-size:14px;margin-top:14px;min-height:20px}
+.foot{margin-top:28px;font-size:12px;color:rgba(255,255,255,.35)}
 </style></head><body>
 <form class="box" method="post" action="/roster/login">
+<img class="logo" src="/favicon.svg" alt="" width="64" height="64">
 <h1>Team Roster</h1>
-<p>Enter the access PIN to view.</p>
-<input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" autofocus placeholder="••••" aria-label="PIN">
+<p>Enter the access PIN to continue.</p>
+<input name="pin" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" autofocus placeholder="••••" aria-label="PIN">
 <button type="submit">View roster</button>
 <div class="err">__ERROR__</div>
+<div class="foot">Bellicose Church</div>
 </form></body></html>

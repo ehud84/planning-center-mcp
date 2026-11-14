@@ -3,6 +3,10 @@
   "name": "bellicose-roster",
   "account_id": "55c94d35c24b4d0b590982a76c23d01a",
   "main": "src/index.ts",
+  "rules": [
+    { "type": "Text", "globs": ["**/*.svg"], "fallthrough": true },
+    { "type": "Data", "globs": ["**/*.png"], "fallthrough": true }
+  ],
   "compatibility_date": "2026-11-01",
   "routes": [{ "pattern": "pco.bellicosechurch.org", "custom_domain": true }],
   "kv_namespaces": [
